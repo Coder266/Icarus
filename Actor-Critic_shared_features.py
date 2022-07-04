@@ -20,10 +20,9 @@ torch.autograd.set_detect_anomaly(True)
 
 
 class Brain(nn.Module):
-    def __init__(self, actor_state_size, critic_state_size, action_size):
+    def __init__(self, state_size, action_size):
         super(Brain, self).__init__()
-        self.actor_state_size = actor_state_size
-        self.critic_state_size = critic_state_size
+        self.state_size = state_size
         self.action_size = action_size
         self.linear1 = nn.Linear(self.state_size, 128)
         self.linear2 = nn.Linear(128, 256)
@@ -37,20 +36,15 @@ class Brain(nn.Module):
         actor_output = self.actor_head(output)
         distribution = Categorical(F.softmax(actor_output, dim=-1))
 
-        critic_output = self.critic_head(output)
-        value = nn.ReLU(critic_output)
+        value = F.relu(self.critic_head(output))
 
         return distribution, value
 
 
 class ActorCriticPlayer:
-    def __init__(self, actor_state_size, critic_state_size, action_size, gamma=0.99):
-        self.model = Brain(actor_state_size, critic_state_size, action_size).to(device)
+    def __init__(self, state_size, action_size, gamma=0.99):
+        self.model = Brain(state_size, action_size).to(device)
         self.gamma = gamma
-
-    def get_order(self, power_name):
-        # TODO
-        pass
 
 
 def train(max_steps, num_episodes, learning_rate=0.99):
@@ -59,8 +53,7 @@ def train(max_steps, num_episodes, learning_rate=0.99):
     action_size = len(ACTION_LIST)
 
     player = ActorCriticPlayer(actor_state_size, critic_state_size, action_size)
-    optimizer_a = optim.Adam(player.actor.parameters(), lr=learning_rate)
-    optimizer_c = optim.Adam(player.critic.parameters(), lr=learning_rate)
+    optimizer_a = optim.Adam(player.model.parameters(), lr=learning_rate)
 
     for episode in range(num_episodes):
         print(episode)
@@ -84,7 +77,7 @@ def train(max_steps, num_episodes, learning_rate=0.99):
                 orders = []
                 critic_state = np.concatenate([[power_idx], observation])
                 critic_state = torch.FloatTensor(critic_state).to(device)
-                value = player.critic(critic_state)
+                value = player.model(critic_state)
                 values_per_power[power_name].append(value)
 
                 step_log_probs = []

@@ -3,9 +3,6 @@ from diplomacy import Game
 from environment.constants import *
 import environment.order_utils as order_utils
 
-# max num orders * num powers
-MAX_ORDERS = 18
-NUM_ORDERS_PER_PHASE = MAX_ORDERS * len(ALL_POWERS)
 LOC_VECTOR_LENGTH = 35
 
 UNIT_TYPE_INDEX = 0
@@ -78,11 +75,8 @@ def get_loc_types(game):
     return {key.upper(): item for key, item in game.map.loc_type.items()}
 
 
-def get_observation(game: Game):
+def get_board_state(game: Game):
     state = game.get_state()
-
-    # season
-    season = get_season_code(state["name"])
 
     # board
     # Array num_areas x loc_vector_length
@@ -145,22 +139,19 @@ def get_observation(game: Game):
 
         board_state += [loc_vector]
 
-    board_state = np.concatenate(board_state)
-
-    # build_number
-    # vector of length 7 with the number of units a player can build/has to remove
-    build_numbers = [builds["count"] for builds in state["builds"].values()]
-
-    # last phase orders
-    if game.get_phase_history(-1):
-        last_phase_orders = [order_utils.order_to_id(order) for order in sum(game.get_phase_history(-1)[0].orders.values(), [])]
-    else:
-        last_phase_orders = []
-    last_phase_orders = np.pad(last_phase_orders, [0, NUM_ORDERS_PER_PHASE - len(last_phase_orders)])
-
-    return np.concatenate([[season], board_state, build_numbers, last_phase_orders])
+    return np.array(board_state)
 
 
-def get_observation_length():
-    # season, board_state, build_numbers, last_actions
-    return 1 + (len(LOCATIONS) * LOC_VECTOR_LENGTH) + len(ALL_POWERS) + NUM_ORDERS_PER_PHASE
+def get_last_phase_orders(game: Game):
+    last_phase_orders_rep = np.zeros(len(LOCATIONS))
+
+    if not game.get_phase_history(-1):
+        return last_phase_orders_rep
+
+    last_phase_orders = sum(game.get_phase_history(-1)[0].orders.values(), [])
+    order_by_loc = {order.split()[1]: order_utils.order_to_ix(order) for order in last_phase_orders}
+    for i, loc in enumerate(LOCATIONS):
+        if loc in order_by_loc:
+            last_phase_orders_rep[i] = order_by_loc[loc]
+
+    return last_phase_orders_rep

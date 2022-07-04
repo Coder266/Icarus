@@ -185,6 +185,13 @@ def ix_to_order(order_ix: int) -> str:
     return ACTION_LIST[order_ix]
 
 
+def order_to_ix(order: str) -> int:
+    if 'VIA' in order:
+        order = order.split('VIA')[0]
+        order += 'VIA'
+    return ACTION_LIST.index(order)
+
+
 def bits_between(number: int, start: int, end: int):
     """Returns bits between positions start and end from number."""
     return number % (1 << end) // (1 << start)
