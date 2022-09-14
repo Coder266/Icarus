@@ -129,7 +129,7 @@ def get_board_state(game: Game):
             loc_vector[DISLODGED_POWER_INDEX + 7] = True
 
         # loc type
-        loc_vector[LAND_TYPE_INDEX] = LAND_TYPES.index(loc_types[loc])
+        loc_vector[LAND_TYPE_INDEX + LAND_TYPES.index(loc_types[loc])] = True
 
         # centers
         if loc in centers:
@@ -143,13 +143,13 @@ def get_board_state(game: Game):
 
 
 def get_last_phase_orders(game: Game):
-    last_phase_orders_rep = np.zeros(len(LOCATIONS))
+    last_phase_orders_rep = np.zeros((len(LOCATIONS), order_utils.ORDER_SIZE))
 
     if not game.get_phase_history(-1):
         return last_phase_orders_rep
 
     last_phase_orders = sum(game.get_phase_history(-1)[0].orders.values(), [])
-    order_by_loc = {order.split()[1]: order_utils.order_to_ix(order) for order in last_phase_orders}
+    order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in last_phase_orders}
     for i, loc in enumerate(LOCATIONS):
         if loc in order_by_loc:
             last_phase_orders_rep[i] = order_by_loc[loc]

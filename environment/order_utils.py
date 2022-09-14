@@ -1,3 +1,4 @@
+import numpy as np
 from diplomacy import Game
 
 from environment.action_list import ACTION_LIST
@@ -5,7 +6,7 @@ from environment.constants import *
 import environment.observation_utils as observation_utils
 
 
-ORDER_SIZE = 56
+ORDER_SIZE = 8
 
 # unit type, 0 for army, 1 for fleet
 UNIT_TYPE_START = 0
@@ -23,6 +24,25 @@ EXTRA_LOC_2_START = 32
 EXTRA_LOC_3_START = 40
 EXTRA_LOC_4_START = 48
 
+UNIT_TYPE_INDEX = 0
+ORDER_TYPE_INDEX = 1
+ORDERED_LOC_INDEX = 2
+TARGET_LOC_INDEX = 3
+EXTRA_LOC_1_INDEX = 4
+EXTRA_LOC_2_INDEX = 5
+EXTRA_LOC_3_INDEX = 6
+EXTRA_LOC_4_INDEX = 7
+
+
+def get_valid_orders(game, power):
+    possible_orders = game.get_all_possible_orders()
+    return [ACTION_LIST.index(order) for loc in game.get_orderable_locations(power) for order in possible_orders[loc]]
+
+
+def get_loc_valid_orders(game, loc):
+    possible_orders = game.get_all_possible_orders()
+    orders = [ACTION_LIST.index(order) for order in possible_orders[loc] if order in ACTION_LIST]
+    return orders
 
 def loc_to_ix(loc: str) -> int:
     return LOCATIONS.index(loc.upper()) + 1
@@ -33,6 +53,9 @@ def ix_to_loc(ix: int) -> str:
 
 
 def get_order_type(tokens) -> int:
+    if tokens[0] == 'WAIVE':
+        return WAIVE
+
     if tokens[2] == 'H':
         return HOLD
 
@@ -115,6 +138,54 @@ def order_to_id(order: str) -> int:
         raise ValueError(f"Unknown order {order}")
 
     return order_id
+
+
+def order_to_rep(order: str):
+    # UNIT TYPE | ORDER TYPE | ORDER LOCATION | TARGET LOCATION |
+    # EXTRA LOCATION 1 | EXTRA LOCATION 2 | EXTRA LOCATION 3 | EXTRA LOCATION 4
+
+    order_rep = np.zeros(ORDER_SIZE)
+    tokens = order.split()
+
+    # tokens[0] is unit
+    if tokens[0] in UNIT_TYPES:
+        order_rep[UNIT_TYPE_INDEX] = UNIT_TYPES.index(tokens[0])
+
+        order_rep[ORDERED_LOC_INDEX] = loc_to_ix(tokens[1])
+
+        order_type = get_order_type(tokens)
+        order_rep[ORDER_TYPE_INDEX] = order_type
+
+        if order_type in [MOVE, CONVOY_TO, RETREAT_TO]:
+            order_rep[TARGET_LOC_INDEX] = loc_to_ix(tokens[3])
+
+        elif order_type == SUPPORT_HOLD:
+            order_rep[TARGET_LOC_INDEX] = loc_to_ix(tokens[4])
+
+        elif order_type in [SUPPORT_MOVE, CONVOY]:
+            order_rep[TARGET_LOC_INDEX] = loc_to_ix(tokens[6])
+            order_rep[EXTRA_LOC_1_INDEX] = loc_to_ix(tokens[4])
+
+        elif order_type == CONVOY_TO:
+            n_convoys = len(tokens) - 5
+            if n_convoys > 4:
+                raise ValueError(f"Convoy line longer than 4 {order}")
+            if n_convoys > 0:
+                order_rep[EXTRA_LOC_1_INDEX] = loc_to_ix(tokens[5])
+            if n_convoys > 1:
+                order_rep[EXTRA_LOC_2_INDEX] = loc_to_ix(tokens[6])
+            if n_convoys > 2:
+                order_rep[EXTRA_LOC_3_INDEX] = loc_to_ix(tokens[7])
+            if n_convoys > 3:
+                order_rep[EXTRA_LOC_4_INDEX] = loc_to_ix(tokens[8])
+
+    elif tokens[0] == 'WAIVE':
+        order_rep[ORDER_TYPE_INDEX] = WAIVE
+
+    else:
+        raise ValueError(f"Unknown order {order}")
+
+    return order_rep
 
 
 def id_to_order(order_id: int, game: Game) -> str:
