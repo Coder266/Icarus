@@ -145,10 +145,10 @@ def get_board_state(game: Game):
 def get_last_phase_orders(game: Game):
     last_phase_orders_rep = np.zeros((len(LOCATIONS), order_utils.ORDER_SIZE))
 
-    if not game.get_phase_history(-1):
+    if not Game.get_phase_history(game, from_phase=-1):
         return last_phase_orders_rep
 
-    last_phase_orders = sum(game.get_phase_history(-1)[0].orders.values(), [])
+    last_phase_orders = sum(Game.get_phase_history(game, from_phase=-1)[0].orders.values(), [])
     order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in last_phase_orders}
     for i, loc in enumerate(LOCATIONS):
         if loc in order_by_loc:

@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from diplomacy import Game
 from diplomacy.utils.export import to_saved_game_format
 from torch.distributions import Categorical
+from tornado import gen
 
 from StatTracker import StatTracker
 from environment.action_list import ACTION_LIST
@@ -40,9 +41,11 @@ class Encoder(nn.Module):
         return x
 
 
-class Model(nn.Module):
-    def __init__(self, state_size, embed_size=224, transformer_layers=10, lstm_layers=2, gamma=0.99):
-        super(Model, self).__init__()
+class Brain(nn.Module):
+    def __init__(self, state_size=LOC_VECTOR_LENGTH + ORDER_SIZE, embed_size=224, transformer_layers=10, lstm_layers=2,
+                 gamma=0.99):
+        super(Brain, self).__init__()
+
         self.gamma = gamma
 
         self.embed_size = embed_size
@@ -92,18 +95,33 @@ class Model(nn.Module):
         return dist, value
 
 
+class Player:
+    def __init__(self, model_path=None):
+        self.brain = Brain()
+
+        if model_path:
+            self.brain.load_state_dict(torch.load(model_path))
+            self.brain.eval()
+
+        self.brain.to(device)
+
+    @gen.coroutine
+    def get_orders(self, game, power_name):
+        board_state = torch.Tensor(get_board_state(game)).to(device)
+        prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
+        orderable_locs = game.get_orderable_locations()
+        dist, _ = self.brain(board_state, prev_orders, [power_name], orderable_locs)
+
+        power_dist = dist[power_name]
+        actions = filter_orders(power_dist, power_name, game)
+
+        return [ix_to_order(ix) for ix in actions]
+
+
 def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
-    state_size = LOC_VECTOR_LENGTH + ORDER_SIZE
+    player = Player(model_path)
 
-    player = Model(state_size)
-
-    if model_path:
-        player.load_state_dict(torch.load(model_path))
-        player.eval()
-
-    player.to(device)
-
-    optimizer = optim.Adam(player.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(player.brain.parameters(), lr=learning_rate)
 
     stat_tracker = StatTracker()
 
@@ -121,7 +139,7 @@ def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
             prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
 
             orderable_locs = game.get_orderable_locations()
-            dist, values = player(board_state, prev_orders, ALL_POWERS, orderable_locs)
+            dist, values = player.brain(board_state, prev_orders, ALL_POWERS, orderable_locs)
 
             for power, value in zip(ALL_POWERS, values):
                 episode_values[power].append(value)
@@ -132,17 +150,9 @@ def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
                 power_dist = dist[power]
 
                 if len(power_dist) > 0:
-                    # filter invalid orders
-                    power_dist_clone = power_dist.clone().detach()
-                    for i, loc in enumerate(orderable_locs[power]):
-                        order_mask = torch.ones_like(power_dist_clone[i], dtype=torch.bool)
-                        order_mask[get_loc_valid_orders(game, loc)] = False
-                        power_dist_clone[i, :] = power_dist_clone[i, :].masked_fill(order_mask, value=0)
+                    actions = filter_orders(power_dist, power, game)
 
                     power_dist = Categorical(power_dist)
-                    power_dist_clone = Categorical(power_dist_clone)
-
-                    actions = power_dist_clone.sample()
                     episode_log_probs[power].append(power_dist.log_prob(actions))
 
                     power_orders = [ix_to_order(ix) for ix in actions]
@@ -151,13 +161,16 @@ def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
 
             game.process()
 
-            # backpropagation once per power
-            # TODO if win big reward
             score = {power_name: len(game.get_state()["centers"][power_name]) for power_name in ALL_POWERS}
+
             for power_name in ALL_POWERS:
+                power_reward = np.subtract(score[power_name], prev_score[power_name])
+                if game.is_game_done and power_name in game.outcome:
+                    power_reward = 34 / (len(game.outcome) - 1)
+
                 episode_rewards[power_name].append(
                     torch.tensor(
-                        np.subtract(score[power_name], prev_score[power_name]),
+                        power_reward,
                         dtype=torch.float,
                         device=device))
             prev_score = score
@@ -167,18 +180,19 @@ def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
             if game.is_game_done:
                 break
 
-        calculate_backdrop(player, game, episode_values, episode_log_probs, episode_rewards, optimizer)
+        calculate_backdrop(player.brain, game, episode_values, episode_log_probs, episode_rewards, optimizer)
 
-        print(f'Game Done\nEpisode {episode}, Step {step}\nScore: {score}')
+        print(f'Game Done\nEpisode {episode}, Step {step}\nScore: {score}\nWinners:{game.outcome[1:]}')
         stat_tracker.end_game()
+
         if episode % 10 == 0:
             stat_tracker.plot_game()
             stat_tracker.plot_wins()
 
-        with open(f'games/game_{episode}.json', 'w') as file:
-            file.write(json.dumps(to_saved_game_format(game)))
+            with open(f'games/game_{episode}.json', 'w') as file:
+                file.write(json.dumps(to_saved_game_format(game)))
 
-        torch.save(player.state_dict(), f'models/model_{episode}.pth')
+            torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
 def calculate_backdrop(player, game, episode_values, episode_log_probs, episode_rewards, optimizer):
@@ -215,3 +229,19 @@ def calculate_backdrop(player, game, episode_values, episode_log_probs, episode_
         optimizer.zero_grad()
         actor_loss.backward(retain_graph=True)
         critic_loss.backward(retain_graph=True)
+
+
+def filter_orders(dist, power_name, game):
+    orderable_locs = game.get_orderable_locations()
+
+    # filter invalid orders
+    dist_clone = dist.clone().detach()
+    for i, loc in enumerate(orderable_locs[power_name]):
+        order_mask = torch.ones_like(dist_clone[i], dtype=torch.bool)
+        order_mask[get_loc_valid_orders(game, loc)] = False
+        dist_clone[i, :] = dist_clone[i, :].masked_fill(order_mask, value=0)
+
+    dist_clone = Categorical(dist_clone)
+
+    actions = dist_clone.sample()
+    return actions
