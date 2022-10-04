@@ -33,3 +33,6 @@ class StatTracker:
         plt.bar(range(len(self.wins)), list(self.wins.values()), align='center')
         plt.xticks(range(len(self.wins)), list(self.wins.keys()))
         plt.show()
+
+    def print_wins(self):
+        print(f'Wins: {self.wins}')
