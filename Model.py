@@ -26,6 +26,7 @@ torch.autograd.set_detect_anomaly(True)
 class Encoder(nn.Module):
     def __init__(self, state_size, embed_size, transformer_layers):
         super(Encoder, self).__init__()
+        self.embed_size = embed_size
         # Linear Layer: state (81*36) > encoding size (81*embed_size)
         self.state_size = state_size
         self.linear = nn.Linear(self.state_size, embed_size)
@@ -37,6 +38,7 @@ class Encoder(nn.Module):
     def forward(self, x_bo, x_po):
         x = torch.cat([x_bo, x_po], -1)
         x = self.linear(x)
+        x = torch.reshape(x, (-1, 1, self.embed_size))
         x = self.transformer_encoder(x)
         return x
 
@@ -69,8 +71,8 @@ class Brain(nn.Module):
         self.linear2 = nn.Linear(embed_size, len(ALL_POWERS))
 
     def init_hidden(self):
-        return (torch.zeros(self.lstm_layers, self.embed_size).to(device),
-                torch.zeros(self.lstm_layers, self.embed_size).to(device))
+        return (torch.zeros(self.lstm_layers, 1, self.embed_size).to(device),
+                torch.zeros(self.lstm_layers, 1, self.embed_size).to(device))
 
     def forward(self, x_bo, x_po, powers, locs_by_power):
         x = self.encoder(x_bo, x_po)
@@ -85,7 +87,8 @@ class Brain(nn.Module):
                 locs_ix = [loc_to_ix(loc) for loc in locs_by_power[power]]
                 locs_emb = x[locs_ix]
                 x_pol, self.hidden = self.lstm(locs_emb, self.hidden)
-                dist[power] = F.softmax(self.linearPolicy(x_pol), dim=1)
+                x_pol = F.softmax(self.linearPolicy(x_pol), dim=1)
+                dist[power] = torch.reshape(x_pol, (len(locs_ix), -1))
 
         # value
         x_value = torch.flatten(x)
@@ -118,7 +121,7 @@ class Player:
         return [ix_to_order(ix) for ix in actions]
 
 
-def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
+def train(num_episodes, learning_rate=0.99, model_path=None):
     player = Player(model_path)
 
     optimizer = optim.Adam(player.brain.parameters(), lr=learning_rate)
@@ -134,7 +137,10 @@ def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
         episode_log_probs = {power_name: [] for power_name in ALL_POWERS}
         episode_rewards = {power_name: [] for power_name in ALL_POWERS}
 
-        for step in range(max_steps):
+        step = 0
+        while not game.is_game_done:
+            step += 1
+
             board_state = torch.Tensor(get_board_state(game)).to(device)
             prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
 
@@ -166,7 +172,10 @@ def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
             for power_name in ALL_POWERS:
                 power_reward = np.subtract(score[power_name], prev_score[power_name])
                 if game.is_game_done and power_name in game.outcome:
-                    power_reward = 34 / (len(game.outcome) - 1)
+                    if score[power_name] >= 18:
+                        power_reward = 34
+                    else:
+                        power_reward = score[power_name] * 34 / sum(score.values())
 
                 episode_rewards[power_name].append(
                     torch.tensor(
@@ -176,9 +185,6 @@ def train(max_steps, num_episodes, learning_rate=0.99, model_path=None):
             prev_score = score
 
             stat_tracker.update(game)
-
-            if game.is_game_done:
-                break
 
         calculate_backdrop(player.brain, game, episode_values, episode_log_probs, episode_rewards, optimizer)
 
