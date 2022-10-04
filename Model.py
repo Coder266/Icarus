@@ -121,7 +121,7 @@ class Player:
         return [ix_to_order(ix) for ix in actions]
 
 
-def train(num_episodes, learning_rate=0.99, model_path=None):
+def train(num_episodes, learning_rate=0.99, model_path=None, print_games=True, plots=False):
     player = Player(model_path)
 
     optimizer = optim.Adam(player.brain.parameters(), lr=learning_rate)
@@ -188,17 +188,22 @@ def train(num_episodes, learning_rate=0.99, model_path=None):
 
         calculate_backdrop(player.brain, game, episode_values, episode_log_probs, episode_rewards, optimizer)
 
-        print(f'Game Done\nEpisode {episode}, Step {step}\nScore: {score}\nWinners:{game.outcome[1:]}')
+        if print_games:
+            print(f'Game Done\nEpisode {episode}, Step {step}\nScore: {score}\nWinners:{game.outcome[1:]}')
+
         stat_tracker.end_game()
 
-        if episode % 10 == 0:
-            stat_tracker.plot_game()
-            stat_tracker.plot_wins()
+        if episode % 100 == 0:
+            if plots:
+                stat_tracker.plot_game()
+                stat_tracker.plot_wins()
 
             with open(f'games/game_{episode}.json', 'w') as file:
                 file.write(json.dumps(to_saved_game_format(game)))
 
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
+
+            stat_tracker.print_wins()
 
 
 def calculate_backdrop(player, game, episode_values, episode_log_probs, episode_rewards, optimizer):
