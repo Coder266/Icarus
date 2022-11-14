@@ -269,15 +269,6 @@ def train_sl(data_path, learning_rate=0.99, model_path=None):
     df['orders'] = df['orders'].apply(
         lambda dic: {key: [order_to_ix(order) for order in item] for key, item in dic.items()})
 
-    # feed bo, po, powers with orderable locs, orderable_locs to brain
-
-    # train value net with rewards of end game
-
-    # train_target = torch.tensor(train['Target'].values.astype(np.float32))
-    # train = torch.tensor(train.drop('Target', axis=1).values.astype(np.float32))
-    # train_tensor = data_utils.TensorDataset(train, train_target)
-    # train_loader = data_utils.DataLoader(dataset=train_tensor, batch_size=batch_size, shuffle=True)
-
     for epoch in range(2):
         running_dist_loss = 0.0
         running_value_loss = 0.0
@@ -285,10 +276,8 @@ def train_sl(data_path, learning_rate=0.99, model_path=None):
         for i, row in df.iterrows():
             powers = [power for power in row['orderable_locations'] if row['orderable_locations'][power]]
 
-            # zero the parameter gradients
             optimizer.zero_grad()
 
-            # forward + backward + optimize
             dist, value_outputs = player.brain(torch.Tensor(row['board_state']).to(device),
                                                torch.Tensor(row['prev_orders']).to(device),
                                                powers,
@@ -309,7 +298,6 @@ def train_sl(data_path, learning_rate=0.99, model_path=None):
             value_loss.backward()
             optimizer.step()
 
-            # print statistics
             running_dist_loss += dist_loss.item()
             running_value_loss += value_loss.item()
             if i % 1000 == 999:
@@ -325,7 +313,6 @@ def train_sl(data_path, learning_rate=0.99, model_path=None):
 def filter_orders(dist, power_name, game):
     orderable_locs = game.get_orderable_locations()
 
-    # filter invalid orders
     dist_clone = dist.clone().detach()
     for i, loc in enumerate(orderable_locs[power_name]):
         order_mask = torch.ones_like(dist_clone[i], dtype=torch.bool)
