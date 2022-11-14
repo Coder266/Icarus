@@ -5,7 +5,6 @@ from environment.action_list import ACTION_LIST
 from environment.constants import *
 import environment.observation_utils as observation_utils
 
-
 ORDER_SIZE = 8
 
 # unit type, 0 for army, 1 for fleet
@@ -43,6 +42,7 @@ def get_loc_valid_orders(game, loc):
     possible_orders = game.get_all_possible_orders()
     orders = [ACTION_LIST.index(order) for order in possible_orders[loc] if order in ACTION_LIST]
     return orders
+
 
 def loc_to_ix(loc: str) -> int:
     return LOCATIONS.index(loc.upper()) + 1
@@ -266,3 +266,62 @@ def order_to_ix(order: str) -> int:
 def bits_between(number: int, start: int, end: int):
     """Returns bits between positions start and end from number."""
     return number % (1 << end) // (1 << start)
+
+
+def loc_to_daide_format(loc):
+    # 'SPA/NC' -> (SPA NCS)
+    if '/' in loc:
+        return f"({loc.split('/')[0]} {loc[4]}CS)"
+    else:
+        return loc
+
+
+def order_to_daide_format(order, game, power_name):
+    tokens = order.split()
+
+    if tokens[0] in UNIT_TYPES:
+        unit_owner = get_unit_owner(game, ' '.join(tokens[:2]))
+
+        unit_string = f"{unit_owner} {DAIDE_UNIT_TYPES[tokens[0]]} {loc_to_daide_format(tokens[1])}"
+
+        order_type = get_order_type(tokens)
+
+        if order_type == HOLD:
+            return f"({unit_string}) HLD"
+        elif order_type == MOVE:
+            return f"({unit_string}) MTO {loc_to_daide_format(tokens[3])}"
+        elif order_type == CONVOY_TO:
+            return f"({unit_string}) CTO {loc_to_daide_format(tokens[3])} VIA"
+        elif order_type == RETREAT_TO:
+            return f"({unit_string}) RTO {loc_to_daide_format(tokens[3])}"
+        elif order_type == DISBAND:
+            return f"({unit_string}) DSB"
+        elif order_type in [BUILD_ARMY, BUILD_FLEET]:
+            return f"({unit_string}) BLD"
+        elif order_type == REMOVE:
+            return f"({unit_string}) REM"
+        elif order_type in [SUPPORT_HOLD, SUPPORT_MOVE, CONVOY]:
+            unit_owner2 = get_unit_owner(game, ' '.join(tokens[3:5]))
+            unit_string2 = f"{unit_owner2} {DAIDE_UNIT_TYPES[tokens[3]]} {loc_to_daide_format(tokens[4])}"
+
+            if order_type == SUPPORT_HOLD:
+                return f"({unit_string}) SUP ({unit_string2})"
+            elif order_type == SUPPORT_MOVE:
+                return f"({unit_string}) SUP ({unit_string2}) MTO {loc_to_daide_format(tokens[6])}"
+            elif order_type == CONVOY:
+                return f"({unit_string}) CVY ({unit_string2}) CTO {loc_to_daide_format(tokens[6])}"
+    elif tokens[0] == 'WAIVE':
+        return f"{POWER_ACRONYMS[power_name]} WVE"
+    else:
+        raise ValueError(f"Unknown order {order}")
+
+
+def get_unit_owner(game, unit):
+    unit_owner_dict = {unit: power for power, units in game.get_state()['units'].items() for unit in units}
+
+    try:
+        unit_owner = POWER_ACRONYMS[unit_owner_dict[unit]]
+    except KeyError:
+        raise ValueError(f"No unit {' '.join(unit)}")
+
+    return unit_owner

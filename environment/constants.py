@@ -1,4 +1,13 @@
 ALL_POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
+POWER_ACRONYMS = {
+    'AUSTRIA': 'AUS',
+    'ENGLAND': 'ENG',
+    'FRANCE': 'FRA',
+    'GERMANY': 'GER',
+    'ITALY': 'ITA',
+    'RUSSIA': 'RUS',
+    'TURKEY': 'TUR'
+}
 
 LOCATIONS = ['YOR', 'EDI', 'LON', 'LVP', 'NTH', 'WAL', 'CLY',
              'NWG', 'ENG', 'IRI', 'NAO', 'BEL', 'DEN', 'HEL',
@@ -14,6 +23,10 @@ LOCATIONS = ['YOR', 'EDI', 'LON', 'LVP', 'NTH', 'WAL', 'CLY',
              'BUL', 'BUL/EC', 'CON', 'BUL/SC']
 
 UNIT_TYPES = ['A', 'F']
+DAIDE_UNIT_TYPES = {
+    'A': 'AMY',
+    'F': 'FLT'
+}
 
 LAND_TYPES = ["LAND", "WATER", "COAST"]
 

@@ -142,6 +142,14 @@ def get_board_state(game: Game):
     return np.array(board_state)
 
 
+def get_score_from_board_state(board_state):
+    score = {power: 0 for power in ALL_POWERS}
+    for loc in board_state:
+        center_owners = loc[-8:-1]
+        if any(center_owners):
+            score[ALL_POWERS[np.where(center_owners == 1)[0][0]]] += 1
+    return score
+
 def get_last_phase_orders(game: Game):
     last_phase_orders_rep = np.zeros((len(LOCATIONS), order_utils.ORDER_SIZE))
 

@@ -1,5 +1,4 @@
 import json
-from collections import namedtuple
 
 import numpy as np
 import torch
@@ -10,16 +9,18 @@ from diplomacy import Game
 from diplomacy.utils.export import to_saved_game_format
 from torch.distributions import Categorical
 from tornado import gen
+import pandas as pd
 
 from StatTracker import StatTracker
 from environment.action_list import ACTION_LIST
 from environment.constants import ALL_POWERS, LOCATIONS
-from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders
+from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders, \
+    get_score_from_board_state
 from environment.order_utils import loc_to_ix, id_to_order, ORDER_SIZE, ix_to_order, get_valid_orders, \
-    get_loc_valid_orders
+    get_loc_valid_orders, order_to_ix
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 torch.autograd.set_detect_anomaly(True)
 
 
@@ -87,7 +88,7 @@ class Brain(nn.Module):
                 locs_ix = [loc_to_ix(loc) for loc in locs_by_power[power]]
                 locs_emb = x[locs_ix]
                 x_pol, self.hidden = self.lstm(locs_emb, self.hidden)
-                x_pol = F.softmax(self.linearPolicy(x_pol), dim=1)
+                x_pol = F.softmax(self.linearPolicy(x_pol), dim=2)
                 dist[power] = torch.reshape(x_pol, (len(locs_ix), -1))
 
         # value
@@ -121,8 +122,45 @@ class Player:
         return [ix_to_order(ix) for ix in actions]
 
 
-def train(num_episodes, learning_rate=0.99, model_path=None):
+def train_rl(num_episodes, learning_rate=0.99, model_path=None):
+    def calculate_backdrop(player, game, episode_values, episode_log_probs, episode_rewards, optimizer):
+        board_state = torch.Tensor(get_board_state(game)).to(device)
+        prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
+
+        orderable_locs = game.get_orderable_locations()
+        _, new_values = player(board_state, prev_orders, ALL_POWERS, orderable_locs)
+
+        for power_idx, power in enumerate(ALL_POWERS):
+            log_probs = episode_log_probs[power]
+            values = episode_values[power]
+            rewards = episode_rewards[power]
+            qval = new_values[power_idx]
+
+            qvals = np.zeros(len(values))
+            for t in reversed(range(len(rewards))):
+                qval = rewards[t] + player.gamma * qval
+                qvals[t] = qval
+
+            # update actor critic
+            values = torch.stack(values)
+            qvals = torch.FloatTensor(qvals).to(device)
+
+            advantage = qvals - values
+
+            step_actor_loss = []
+            for step, step_log_probs in enumerate(log_probs):
+                step_actor_loss.append((-step_log_probs * advantage[step].detach()).mean())
+            actor_loss = torch.stack(step_actor_loss).mean()
+
+            critic_loss = 0.5 * advantage.pow(2).mean()
+
+            optimizer.zero_grad()
+            actor_loss.backward(retain_graph=True)
+            critic_loss.backward(retain_graph=True)
+
     player = Player(model_path)
+
+    player.brain.train()
 
     optimizer = optim.Adam(player.brain.parameters(), lr=learning_rate)
 
@@ -201,40 +239,87 @@ def train(num_episodes, learning_rate=0.99, model_path=None):
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
-def calculate_backdrop(player, game, episode_values, episode_log_probs, episode_rewards, optimizer):
-    board_state = torch.Tensor(get_board_state(game)).to(device)
-    prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
+def train_sl(data_path, learning_rate=0.99, model_path=None):
+    def sort_orders_row(row):
+        for power in row.orderable_locations.keys():
+            sorted_orders = []
+            for loc in row.orderable_locations[power]:
+                done = False
+                for order in row.orders[power]:
+                    if order != 'WAIVE' and loc in order.split(' ')[1]:
+                        sorted_orders.append(order)
+                        done = True
+                        break
+                if not done:
+                    sorted_orders.append('WAIVE')
+            row.orders[power] = sorted_orders
+        return row
 
-    orderable_locs = game.get_orderable_locations()
-    _, new_values = player(board_state, prev_orders, ALL_POWERS, orderable_locs)
+    player = Player(model_path)
 
-    for power_idx, power in enumerate(ALL_POWERS):
-        log_probs = episode_log_probs[power]
-        values = episode_values[power]
-        rewards = episode_rewards[power]
-        qval = new_values[power_idx]
+    player.brain.train()
 
-        qvals = np.zeros(len(values))
-        for t in reversed(range(len(rewards))):
-            qval = rewards[t] + player.gamma * qval
-            qvals[t] = qval
+    optimizer = optim.Adam(player.brain.parameters(), lr=learning_rate)
+    criterion = nn.CrossEntropyLoss()
 
-        # update actor critic
-        values = torch.stack(values)
-        qvals = torch.FloatTensor(qvals).to(device)
+    df = pd.read_pickle(data_path)
 
-        advantage = qvals - values
+    df = df.apply(lambda row: sort_orders_row(row), axis=1)
 
-        step_actor_loss = []
-        for step, step_log_probs in enumerate(log_probs):
-            step_actor_loss.append((-step_log_probs * advantage[step].detach()).mean())
-        actor_loss = torch.stack(step_actor_loss).mean()
+    df['orders'] = df['orders'].apply(
+        lambda dic: {key: [order_to_ix(order) for order in item] for key, item in dic.items()})
 
-        critic_loss = 0.5 * advantage.pow(2).mean()
+    # feed bo, po, powers with orderable locs, orderable_locs to brain
 
-        optimizer.zero_grad()
-        actor_loss.backward(retain_graph=True)
-        critic_loss.backward(retain_graph=True)
+    # train value net with rewards of end game
+
+    # train_target = torch.tensor(train['Target'].values.astype(np.float32))
+    # train = torch.tensor(train.drop('Target', axis=1).values.astype(np.float32))
+    # train_tensor = data_utils.TensorDataset(train, train_target)
+    # train_loader = data_utils.DataLoader(dataset=train_tensor, batch_size=batch_size, shuffle=True)
+
+    for epoch in range(2):
+        running_dist_loss = 0.0
+        running_value_loss = 0.0
+        game_rewards = {}
+        for i, row in df.iterrows():
+            powers = [power for power in row['orderable_locations'] if row['orderable_locations'][power]]
+
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+            # forward + backward + optimize
+            dist, value_outputs = player.brain(torch.Tensor(row['board_state']).to(device),
+                                               torch.Tensor(row['prev_orders']).to(device),
+                                               powers,
+                                               row['orderable_locations'])
+
+            dist_outputs = [probs for power in powers for probs in dist[power]]
+            dist_labels = [order for power in powers for order in row['orders'][power]]
+
+            if row['game_id'] not in game_rewards:
+                last_phase_row = df.loc[df[df['game_id'] == row['game_id']].index.max()]
+                score = get_score_from_board_state(last_phase_row.board_state)
+                game_rewards[row['game_id']] = [score[power]/sum(score.values()) for power in ALL_POWERS]
+            value_labels = game_rewards[row['game_id']]
+
+            dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
+            value_loss = criterion(value_outputs.reshape(1, -1), torch.Tensor(value_labels).to(device).reshape(1, -1))
+            dist_loss.backward(retain_graph=True)
+            value_loss.backward()
+            optimizer.step()
+
+            # print statistics
+            running_dist_loss += dist_loss.item()
+            running_value_loss += value_loss.item()
+            if i % 1000 == 999:
+                print(f'[{epoch + 1}, {i + 1:5d}] dist loss: {running_dist_loss / 1000:.3f}')
+                running_dist_loss = 0.0
+
+                print(f'[{epoch + 1}, {i + 1:5d}] value loss: {running_value_loss / 1000:.3f}')
+                running_value_loss = 0.0
+
+                torch.save(player.brain.state_dict(), f'models/sl_model_{i}.pth')
 
 
 def filter_orders(dist, power_name, game):
