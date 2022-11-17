@@ -19,6 +19,11 @@ from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, ge
 from environment.order_utils import loc_to_ix, id_to_order, ORDER_SIZE, ix_to_order, get_valid_orders, \
     get_loc_valid_orders, order_to_ix
 
+import os
+
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 torch.autograd.set_detect_anomaly(True)
@@ -122,7 +127,7 @@ class Player:
         return [ix_to_order(ix) for ix in actions]
 
 
-def train_rl(num_episodes, learning_rate=0.99, model_path=None):
+def train_rl(num_episodes, learning_rate=0.001, model_path=None):
     def calculate_backdrop(player, game, episode_values, episode_log_probs, episode_rewards, optimizer):
         board_state = torch.Tensor(get_board_state(game)).to(device)
         prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
@@ -239,7 +244,7 @@ def train_rl(num_episodes, learning_rate=0.99, model_path=None):
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
-def train_sl(data_path, learning_rate=0.99, model_path=None):
+def train_sl(data_path, learning_rate=0.001, model_path=None):
     def sort_orders_row(row):
         for power in row.orderable_locations.keys():
             sorted_orders = []
@@ -269,7 +274,7 @@ def train_sl(data_path, learning_rate=0.99, model_path=None):
     df['orders'] = df['orders'].apply(
         lambda dic: {key: [order_to_ix(order) for order in item] for key, item in dic.items()})
 
-    for epoch in range(2):
+    for epoch in range(20):
         running_dist_loss = 0.0
         running_value_loss = 0.0
         game_rewards = {}
@@ -300,14 +305,14 @@ def train_sl(data_path, learning_rate=0.99, model_path=None):
 
             running_dist_loss += dist_loss.item()
             running_value_loss += value_loss.item()
-            if i % 1000 == 999:
+            if i % 5000 == 4999:
                 print(f'[{epoch + 1}, {i + 1:5d}] dist loss: {running_dist_loss / 1000:.3f}')
                 running_dist_loss = 0.0
 
                 print(f'[{epoch + 1}, {i + 1:5d}] value loss: {running_value_loss / 1000:.3f}')
                 running_value_loss = 0.0
 
-                torch.save(player.brain.state_dict(), f'models/sl_model_{i}.pth')
+                torch.save(player.brain.state_dict(), f'models/sl_model_{epoch + 1}_{i + 1}.pth')
 
 
 def filter_orders(dist, power_name, game):
