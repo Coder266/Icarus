@@ -45,11 +45,19 @@ def get_loc_valid_orders(game, loc):
 
 
 def loc_to_ix(loc: str) -> int:
+    return LOCATIONS.index(loc.upper())
+
+
+def loc_to_rep(loc: str) -> int:
     return LOCATIONS.index(loc.upper()) + 1
 
 
-def ix_to_loc(ix: int) -> str:
+def rep_to_loc(ix: int) -> str:
     return LOCATIONS[ix - 1]
+
+
+def ix_to_loc(ix: int) -> str:
+    return LOCATIONS[ix]
 
 
 def get_order_type(tokens) -> int:
@@ -103,33 +111,33 @@ def order_to_id(order: str) -> int:
     if tokens[0] in UNIT_TYPES:
         order_id |= UNIT_TYPES.index(tokens[0]) << UNIT_TYPE_START
 
-        order_id |= loc_to_ix(tokens[1]) << ORDERED_LOC_START
+        order_id |= loc_to_rep(tokens[1]) << ORDERED_LOC_START
 
         order_type = get_order_type(tokens)
         order_id |= order_type << ORDER_TYPE_START
 
         if order_type in [MOVE, CONVOY_TO, RETREAT_TO]:
-            order_id |= loc_to_ix(tokens[3]) << TARGET_LOC_START
+            order_id |= loc_to_rep(tokens[3]) << TARGET_LOC_START
 
         elif order_type == SUPPORT_HOLD:
-            order_id |= loc_to_ix(tokens[4]) << TARGET_LOC_START
+            order_id |= loc_to_rep(tokens[4]) << TARGET_LOC_START
 
         elif order_type in [SUPPORT_MOVE, CONVOY]:
-            order_id |= loc_to_ix(tokens[6]) << TARGET_LOC_START
-            order_id |= loc_to_ix(tokens[4]) << EXTRA_LOC_1_START
+            order_id |= loc_to_rep(tokens[6]) << TARGET_LOC_START
+            order_id |= loc_to_rep(tokens[4]) << EXTRA_LOC_1_START
 
         elif order_type == CONVOY_TO:
             n_convoys = len(tokens) - 5
             if n_convoys > 4:
                 raise ValueError(f"Convoy line longer than 4 {order}")
             if n_convoys > 0:
-                order_id |= loc_to_ix(tokens[5]) << EXTRA_LOC_1_START
+                order_id |= loc_to_rep(tokens[5]) << EXTRA_LOC_1_START
             if n_convoys > 1:
-                order_id |= loc_to_ix(tokens[6]) << EXTRA_LOC_2_START
+                order_id |= loc_to_rep(tokens[6]) << EXTRA_LOC_2_START
             if n_convoys > 2:
-                order_id |= loc_to_ix(tokens[7]) << EXTRA_LOC_3_START
+                order_id |= loc_to_rep(tokens[7]) << EXTRA_LOC_3_START
             if n_convoys > 3:
-                order_id |= loc_to_ix(tokens[8]) << EXTRA_LOC_4_START
+                order_id |= loc_to_rep(tokens[8]) << EXTRA_LOC_4_START
 
     elif tokens[0] == 'WAIVE':
         order_id |= WAIVE << ORDER_TYPE_START
@@ -151,33 +159,33 @@ def order_to_rep(order: str):
     if tokens[0] in UNIT_TYPES:
         order_rep[UNIT_TYPE_INDEX] = UNIT_TYPES.index(tokens[0])
 
-        order_rep[ORDERED_LOC_INDEX] = loc_to_ix(tokens[1])
+        order_rep[ORDERED_LOC_INDEX] = loc_to_rep(tokens[1])
 
         order_type = get_order_type(tokens)
         order_rep[ORDER_TYPE_INDEX] = order_type
 
         if order_type in [MOVE, CONVOY_TO, RETREAT_TO]:
-            order_rep[TARGET_LOC_INDEX] = loc_to_ix(tokens[3])
+            order_rep[TARGET_LOC_INDEX] = loc_to_rep(tokens[3])
 
         elif order_type == SUPPORT_HOLD:
-            order_rep[TARGET_LOC_INDEX] = loc_to_ix(tokens[4])
+            order_rep[TARGET_LOC_INDEX] = loc_to_rep(tokens[4])
 
         elif order_type in [SUPPORT_MOVE, CONVOY]:
-            order_rep[TARGET_LOC_INDEX] = loc_to_ix(tokens[6])
-            order_rep[EXTRA_LOC_1_INDEX] = loc_to_ix(tokens[4])
+            order_rep[TARGET_LOC_INDEX] = loc_to_rep(tokens[6])
+            order_rep[EXTRA_LOC_1_INDEX] = loc_to_rep(tokens[4])
 
         elif order_type == CONVOY_TO:
             n_convoys = len(tokens) - 5
             if n_convoys > 4:
                 raise ValueError(f"Convoy line longer than 4 {order}")
             if n_convoys > 0:
-                order_rep[EXTRA_LOC_1_INDEX] = loc_to_ix(tokens[5])
+                order_rep[EXTRA_LOC_1_INDEX] = loc_to_rep(tokens[5])
             if n_convoys > 1:
-                order_rep[EXTRA_LOC_2_INDEX] = loc_to_ix(tokens[6])
+                order_rep[EXTRA_LOC_2_INDEX] = loc_to_rep(tokens[6])
             if n_convoys > 2:
-                order_rep[EXTRA_LOC_3_INDEX] = loc_to_ix(tokens[7])
+                order_rep[EXTRA_LOC_3_INDEX] = loc_to_rep(tokens[7])
             if n_convoys > 3:
-                order_rep[EXTRA_LOC_4_INDEX] = loc_to_ix(tokens[8])
+                order_rep[EXTRA_LOC_4_INDEX] = loc_to_rep(tokens[8])
 
     elif tokens[0] == 'WAIVE':
         order_rep[ORDER_TYPE_INDEX] = WAIVE
@@ -203,7 +211,7 @@ def id_to_order(order_id: int, game: Game) -> str:
     else:
         order = []
         # unit type and location
-        order += [UNIT_TYPES[unit_type], ix_to_loc(order_loc_ix)]
+        order += [UNIT_TYPES[unit_type], rep_to_loc(order_loc_ix)]
 
         # order code
         if order_type == HOLD:
@@ -228,26 +236,26 @@ def id_to_order(order_id: int, game: Game) -> str:
 
         # locations
         if order_type in [MOVE, CONVOY_TO, RETREAT_TO]:
-            order += [ix_to_loc(target_loc_ix)]
+            order += [rep_to_loc(target_loc_ix)]
         elif order_type == SUPPORT_HOLD:
-            order += [observation_utils.get_unit_type_in_loc(ix_to_loc(target_loc_ix), game),
-                      ix_to_loc(target_loc_ix)]
+            order += [observation_utils.get_unit_type_in_loc(rep_to_loc(target_loc_ix), game),
+                      rep_to_loc(target_loc_ix)]
         elif order_type in [SUPPORT_MOVE, CONVOY]:
-            order += [observation_utils.get_unit_type_in_loc(ix_to_loc(extra_loc1_ix), game),
-                      ix_to_loc(extra_loc1_ix),
+            order += [observation_utils.get_unit_type_in_loc(rep_to_loc(extra_loc1_ix), game),
+                      rep_to_loc(extra_loc1_ix),
                       '-',
-                      ix_to_loc(target_loc_ix)]
+                      rep_to_loc(target_loc_ix)]
 
         if order_type == CONVOY_TO:
             order += ['VIA']
             if extra_loc1_ix != 0:
-                order += ix_to_loc(extra_loc1_ix)
+                order += rep_to_loc(extra_loc1_ix)
             if extra_loc2_ix != 0:
-                order += ix_to_loc(extra_loc2_ix)
+                order += rep_to_loc(extra_loc2_ix)
             if extra_loc3_ix != 0:
-                order += ix_to_loc(extra_loc3_ix)
+                order += rep_to_loc(extra_loc3_ix)
             if extra_loc4_ix != 0:
-                order += ix_to_loc(extra_loc4_ix)
+                order += rep_to_loc(extra_loc4_ix)
 
         return ' '.join(order)
 

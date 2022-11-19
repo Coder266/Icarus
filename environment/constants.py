@@ -8,6 +8,7 @@ POWER_ACRONYMS = {
     'RUSSIA': 'RUS',
     'TURKEY': 'TUR'
 }
+POWER_ACRONYMS_LIST = ['AUS', 'ENG', 'FRA', 'GER', 'ITA', 'RUS', 'TUR']
 
 LOCATIONS = ['YOR', 'EDI', 'LON', 'LVP', 'NTH', 'WAL', 'CLY',
              'NWG', 'ENG', 'IRI', 'NAO', 'BEL', 'DEN', 'HEL',
@@ -31,6 +32,7 @@ DAIDE_UNIT_TYPES = {
 LAND_TYPES = ["LAND", "WATER", "COAST"]
 
 # Order types
+WAIVE = 0
 HOLD = 1
 MOVE = 2
 SUPPORT_HOLD = 3
@@ -42,7 +44,6 @@ DISBAND = 8
 BUILD_ARMY = 9
 BUILD_FLEET = 10
 REMOVE = 11
-WAIVE = 12
 
 # Seasons
 SPRING_MOVES = 0

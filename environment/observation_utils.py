@@ -37,8 +37,8 @@ def get_owner_by_loc(state):
     return {loc: power for power in state["influence"] for loc in state["influence"][power]}
 
 
-def get_unit_type_by_loc(game):
-    units = sum(game.get_state()["units"].values(), [])
+def get_unit_type_by_loc(state):
+    units = sum(state["units"].values(), [])
     units = [unit.split(' ') for unit in units]
     units = {unit[1]: unit[0] for unit in units}
 
@@ -46,7 +46,7 @@ def get_unit_type_by_loc(game):
 
 
 def get_unit_type_in_loc(loc: str, game: Game) -> str:
-    units = get_unit_type_by_loc(game)
+    units = get_unit_type_by_loc(game.get_state())
 
     if loc in units:
         unit_type = units[loc]
@@ -71,22 +71,20 @@ def get_dislodged_units_power_by_loc(state):
     return {retreats.split()[1]: power for power in state["retreats"] for retreats in state["retreats"][power]}
 
 
-def get_loc_types(game):
-    return {key.upper(): item for key, item in game.map.loc_type.items()}
+def get_loc_types():
+    return {key.upper(): item for key, item in Game().map.loc_type.items()}
 
 
-def get_board_state(game: Game):
-    state = game.get_state()
-
+def get_board_state(state):
     # board
     # Array num_areas x loc_vector_length
     board_state = []
-    unit_type = get_unit_type_by_loc(game)
+    unit_type = get_unit_type_by_loc(state)
     owner = get_owner_by_loc(state)
     dislodged_powers = get_dislodged_units_power_by_loc(state)
     dislodged_units = get_dislodged_units_by_loc(state)
     centers = get_centers_by_loc(state)
-    loc_types = get_loc_types(game)
+    loc_types = get_loc_types()
 
     for loc in LOCATIONS:
         # UNIT_TYPE (3 flags) (army, fleet, none) | POWER (8 flags) (power + none) | BUILDABLE (1 flag) |
@@ -150,16 +148,22 @@ def get_score_from_board_state(board_state):
             score[ALL_POWERS[np.where(center_owners == 1)[0][0]]] += 1
     return score
 
+
 def get_last_phase_orders(game: Game):
-    last_phase_orders_rep = np.zeros((len(LOCATIONS), order_utils.ORDER_SIZE))
+    phase_history = Game.get_phase_history(game, from_phase=-1)
+    return phase_orders_to_rep(phase_history[0].orders)
 
-    if not Game.get_phase_history(game, from_phase=-1):
-        return last_phase_orders_rep
 
-    last_phase_orders = sum(Game.get_phase_history(game, from_phase=-1)[0].orders.values(), [])
-    order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in last_phase_orders}
+def phase_orders_to_rep(phase_orders):
+    phase_orders_rep = np.zeros((len(LOCATIONS), order_utils.ORDER_SIZE))
+
+    if not phase_orders:
+        return phase_orders_rep
+
+    phase_orders = sum(phase_orders.values(), [])
+    order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in phase_orders if order != 'WAIVE'}
     for i, loc in enumerate(LOCATIONS):
         if loc in order_by_loc:
-            last_phase_orders_rep[i] = order_by_loc[loc]
+            phase_orders_rep[i] = order_by_loc[loc]
 
-    return last_phase_orders_rep
+    return phase_orders_rep

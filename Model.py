@@ -10,14 +10,15 @@ from diplomacy.utils.export import to_saved_game_format
 from torch.distributions import Categorical
 from tornado import gen
 import pandas as pd
+import jsonlines
 
 from StatTracker import StatTracker
 from environment.action_list import ACTION_LIST
-from environment.constants import ALL_POWERS, LOCATIONS
+from environment.constants import ALL_POWERS, LOCATIONS, POWER_ACRONYMS_LIST
 from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders, \
-    get_score_from_board_state
-from environment.order_utils import loc_to_ix, id_to_order, ORDER_SIZE, ix_to_order, get_valid_orders, \
-    get_loc_valid_orders, order_to_ix
+    get_score_from_board_state, phase_orders_to_rep
+from environment.order_utils import loc_to_rep, id_to_order, ORDER_SIZE, ix_to_order, get_valid_orders, \
+    get_loc_valid_orders, order_to_ix, loc_to_ix
 
 import os
 
@@ -93,14 +94,12 @@ class Brain(nn.Module):
                 locs_ix = [loc_to_ix(loc) for loc in locs_by_power[power]]
                 locs_emb = x[locs_ix]
                 x_pol, self.hidden = self.lstm(locs_emb, self.hidden)
-                # x_pol = F.softmax(self.linearPolicy(x_pol), dim=2)
                 x_pol = self.linearPolicy(x_pol)
                 dist[power] = torch.reshape(x_pol, (len(locs_ix), -1))
 
         # value
         x_value = torch.flatten(x)
         x_value = F.relu(self.linear1(x_value))
-        # value = F.softmax(self.linear2(x_value), dim=0)
         value = self.linear2(x_value)
 
         return dist, value
@@ -118,7 +117,7 @@ class Player:
 
     @gen.coroutine
     def get_orders(self, game, power_name):
-        board_state = torch.Tensor(get_board_state(game)).to(device)
+        board_state = torch.Tensor(get_board_state(game.get_state())).to(device)
         prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
         orderable_locs = game.get_orderable_locations()
         dist, _ = self.brain(board_state, prev_orders, [power_name], orderable_locs)
@@ -131,7 +130,7 @@ class Player:
 
 def train_rl(num_episodes, learning_rate=0.001, model_path=None):
     def calculate_backdrop(player, game, episode_values, episode_log_probs, episode_rewards, optimizer):
-        board_state = torch.Tensor(get_board_state(game)).to(device)
+        board_state = torch.Tensor(get_board_state(game.get_state())).to(device)
         prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
 
         orderable_locs = game.get_orderable_locations()
@@ -186,7 +185,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
         while not game.is_game_done:
             step += 1
 
-            board_state = torch.Tensor(get_board_state(game)).to(device)
+            board_state = torch.Tensor(get_board_state(game.get_state())).to(device)
             prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
 
             orderable_locs = game.get_orderable_locations()
@@ -246,21 +245,25 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
-def train_sl(data_path, learning_rate=0.0001, model_path=None):
-    def sort_orders_row(row):
-        for power in row.orderable_locations.keys():
+def train_sl(file_paths, learning_rate=0.0001, model_path=None):
+    def sort_orders(orderable_locs, orders):
+        sorted_orders_by_power = {}
+        for power in orderable_locs.keys():
             sorted_orders = []
-            for loc in row.orderable_locations[power]:
+            for loc in orderable_locs[power]:
                 done = False
-                for order in row.orders[power]:
-                    if order != 'WAIVE' and loc in order.split(' ')[1]:
-                        sorted_orders.append(order)
-                        done = True
-                        break
-                if not done:
+                if orders[power] is None:
                     sorted_orders.append('WAIVE')
-            row.orders[power] = sorted_orders
-        return row
+                else:
+                    for order in orders[power]:
+                        if order != 'WAIVE' and loc in order.split()[1]:
+                            sorted_orders.append(order)
+                            done = True
+                            break
+                    if not done:
+                        sorted_orders.append('WAIVE')
+            sorted_orders_by_power[power] = sorted_orders
+        return sorted_orders_by_power
 
     player = Player(model_path)
 
@@ -269,53 +272,64 @@ def train_sl(data_path, learning_rate=0.0001, model_path=None):
     optimizer = optim.Adam(player.brain.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
 
-    df = pd.read_pickle(data_path)
-
-    df = df.apply(lambda row: sort_orders_row(row), axis=1)
-
-    df['orders'] = df['orders'].apply(
-        lambda dic: {key: [order_to_ix(order) for order in item] for key, item in dic.items()})
-
     for epoch in range(10):
         running_dist_loss = 0.0
         running_value_loss = 0.0
-        game_rewards = {}
 
-        for i, row in df.iterrows():
-            powers = [power for power in row['orderable_locations'] if row['orderable_locations'][power]]
+        for i, path in enumerate(file_paths):
+            with jsonlines.open(path) as reader:
+                for j, obj in enumerate(reader):
+                    note = obj['phases'][-1]['state']['note'].split(': ')
 
-            optimizer.zero_grad()
+                    if note[0] == 'Victory by':
+                        final_score = [int(note[1] == power) * 34 for power in POWER_ACRONYMS_LIST]
+                    else:
+                        last_phase = obj['phases'][-1]
+                        # final_score should be
+                        # final_score = [score/sum(final_score) * 34 for score in final_score]
+                        # but it is not needed here since we only need the proportion
+                        final_score = [len(last_phase['state']['centers'][power])
+                                       if power in last_phase['state']['centers']
+                                       else 0 for power in ALL_POWERS]
 
-            dist, value_outputs = player.brain(torch.Tensor(row['board_state']).to(device),
-                                               torch.Tensor(row['prev_orders']).to(device),
-                                               powers,
-                                               row['orderable_locations'])
+                    last_phase_orders = []
 
-            dist_outputs = [probs for power in powers for probs in dist[power]]
-            dist_labels = [order for power in powers for order in row['orders'][power]]
+                    for phase in obj['phases']:
+                        optimizer.zero_grad()
 
-            if row['game_id'] not in game_rewards:
-                last_phase_row = df.loc[df[df['game_id'] == row['game_id']].index.max()]
-                score = get_score_from_board_state(last_phase_row.board_state)
-                game_rewards[row['game_id']] = [score[power]/sum(score.values()) for power in ALL_POWERS]
-            value_labels = game_rewards[row['game_id']]
+                        board_state = get_board_state(phase['state'])
+                        prev_orders = phase_orders_to_rep(last_phase_orders)
+                        powers = list(phase['orders'].keys())
+                        orderable_locs = {power: [unit.split()[1] for unit in units] for power, units in phase['state']['units'].items()}
+                        orders = sort_orders(orderable_locs, phase['orders'])
 
-            dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
-            value_loss = criterion(value_outputs.reshape(1, -1), torch.Tensor(value_labels).to(device).reshape(1, -1))
-            dist_loss.backward(retain_graph=True)
-            value_loss.backward()
-            optimizer.step()
+                        last_phase_orders = orders
 
-            running_dist_loss += dist_loss.item()
-            running_value_loss += value_loss.item()
-            if i % 5000 == 4999:
-                print(f'[{epoch + 1}, {i + 1:5d}] dist loss: {running_dist_loss / 1000:.3f}')
-                running_dist_loss = 0.0
+                        dist, value_outputs = player.brain(torch.Tensor(board_state).to(device),
+                                                           torch.Tensor(prev_orders).to(device),
+                                                           powers,
+                                                           orderable_locs)
 
-                print(f'[{epoch + 1}, {i + 1:5d}] value loss: {running_value_loss / 1000:.3f}')
-                running_value_loss = 0.0
-                torch.save(player.brain.state_dict(), f'models/sl_model_{epoch + 1}_{i + 1}.pth')
+                        dist_outputs = [probs for power in powers for probs in dist[power]]
+                        dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
 
+                        value_labels = [score/sum(final_score) for score in final_score]
+
+                        dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
+                        value_loss = criterion(value_outputs.reshape(1, -1), torch.Tensor(value_labels).to(device).reshape(1, -1))
+                        dist_loss.backward(retain_graph=True)
+                        value_loss.backward()
+                        optimizer.step()
+
+                        running_dist_loss += dist_loss.item()
+                        running_value_loss += value_loss.item()
+                        if i % 1000 == 999:
+                            print(f'[{epoch + 1}, {i + 1}, {j + 1}] dist loss: {running_dist_loss / 1000:.3f}')
+                            running_dist_loss = 0.0
+
+                            print(f'[{epoch + 1}, {i + 1}, {j + 1}] value loss: {running_value_loss / 1000:.3f}')
+                            running_value_loss = 0.0
+                            torch.save(player.brain.state_dict(), f'models/sl_model_{epoch + 1}_{i + 1}_{j + 1}.pth')
 
 
 def filter_orders(dist, power_name, game):
