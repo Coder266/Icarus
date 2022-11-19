@@ -93,13 +93,15 @@ class Brain(nn.Module):
                 locs_ix = [loc_to_ix(loc) for loc in locs_by_power[power]]
                 locs_emb = x[locs_ix]
                 x_pol, self.hidden = self.lstm(locs_emb, self.hidden)
-                x_pol = F.softmax(self.linearPolicy(x_pol), dim=2)
+                # x_pol = F.softmax(self.linearPolicy(x_pol), dim=2)
+                x_pol = self.linearPolicy(x_pol)
                 dist[power] = torch.reshape(x_pol, (len(locs_ix), -1))
 
         # value
         x_value = torch.flatten(x)
         x_value = F.relu(self.linear1(x_value))
-        value = F.softmax(self.linear2(x_value), dim=0)
+        # value = F.softmax(self.linear2(x_value), dim=0)
+        value = self.linear2(x_value)
 
         return dist, value
 
@@ -121,7 +123,7 @@ class Player:
         orderable_locs = game.get_orderable_locations()
         dist, _ = self.brain(board_state, prev_orders, [power_name], orderable_locs)
 
-        power_dist = dist[power_name]
+        power_dist = F.softmax(dist[power_name])
         actions = filter_orders(power_dist, power_name, game)
 
         return [ix_to_order(ix) for ix in actions]
@@ -196,7 +198,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
             for power in ALL_POWERS:
                 power_orders = []
 
-                power_dist = dist[power]
+                power_dist = F.softmax(dist[power])
 
                 if len(power_dist) > 0:
                     actions = filter_orders(power_dist, power, game)
@@ -244,7 +246,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
-def train_sl(data_path, learning_rate=0.001, model_path=None):
+def train_sl(data_path, learning_rate=0.0001, model_path=None):
     def sort_orders_row(row):
         for power in row.orderable_locations.keys():
             sorted_orders = []
@@ -274,10 +276,11 @@ def train_sl(data_path, learning_rate=0.001, model_path=None):
     df['orders'] = df['orders'].apply(
         lambda dic: {key: [order_to_ix(order) for order in item] for key, item in dic.items()})
 
-    for epoch in range(20):
+    for epoch in range(10):
         running_dist_loss = 0.0
         running_value_loss = 0.0
         game_rewards = {}
+
         for i, row in df.iterrows():
             powers = [power for power in row['orderable_locations'] if row['orderable_locations'][power]]
 
@@ -311,8 +314,8 @@ def train_sl(data_path, learning_rate=0.001, model_path=None):
 
                 print(f'[{epoch + 1}, {i + 1:5d}] value loss: {running_value_loss / 1000:.3f}')
                 running_value_loss = 0.0
-
                 torch.save(player.brain.state_dict(), f'models/sl_model_{epoch + 1}_{i + 1}.pth')
+
 
 
 def filter_orders(dist, power_name, game):
