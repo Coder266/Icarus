@@ -313,6 +313,12 @@ def train_sl(file_paths, learning_rate=0.0001, model_path=None):
                         dist_outputs = [probs for power in powers for probs in dist[power]]
                         dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
 
+                        # remove unsupported orders (ex. convoys longer than 4)
+                        to_remove = [i for i, label in enumerate(dist_labels) if label is None]
+                        for index in sorted(to_remove, reverse=True):
+                            del dist_outputs[index]
+                            del dist_labels[index]
+
                         value_labels = [score/sum(final_score) for score in final_score]
 
                         dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
