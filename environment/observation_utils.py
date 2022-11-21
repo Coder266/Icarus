@@ -1,5 +1,7 @@
 import numpy as np
 from diplomacy import Game
+
+from environment.action_list import ACTION_LIST
 from environment.constants import *
 import environment.order_utils as order_utils
 
@@ -161,7 +163,7 @@ def phase_orders_to_rep(phase_orders):
         return phase_orders_rep
 
     phase_orders = sum(phase_orders.values(), [])
-    order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in phase_orders if order != 'WAIVE'}
+    order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in phase_orders if order in ACTION_LIST}
     for i, loc in enumerate(LOCATIONS):
         if loc in order_by_loc:
             phase_orders_rep[i] = order_by_loc[loc]
