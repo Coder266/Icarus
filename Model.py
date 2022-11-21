@@ -22,8 +22,8 @@ from environment.order_utils import loc_to_rep, id_to_order, ORDER_SIZE, ix_to_o
 
 import os
 
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
@@ -275,10 +275,11 @@ def train_sl(file_paths, learning_rate=0.0001, model_path=None):
     for epoch in range(10):
         running_dist_loss = 0.0
         running_value_loss = 0.0
+        input_count = 0
 
-        for i, path in enumerate(file_paths):
+        for path in file_paths:
             with jsonlines.open(path) as reader:
-                for j, obj in enumerate(reader):
+                for obj in reader:
                     note = obj['phases'][-1]['state']['note'].split(': ')
 
                     if note[0] == 'Victory by':
@@ -295,6 +296,8 @@ def train_sl(file_paths, learning_rate=0.0001, model_path=None):
                     last_phase_orders = []
 
                     for phase in obj['phases']:
+                        input_count += 1
+
                         optimizer.zero_grad()
 
                         board_state = get_board_state(phase['state'])
@@ -319,7 +322,10 @@ def train_sl(file_paths, learning_rate=0.0001, model_path=None):
                             del dist_outputs[index]
                             del dist_labels[index]
 
-                        value_labels = [score/sum(final_score) for score in final_score]
+                        if sum(final_score) != 0:
+                            value_labels = [score/sum(final_score) for score in final_score]
+                        else:
+                            value_labels = [0] * 7
 
                         dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
                         value_loss = criterion(value_outputs.reshape(1, -1), torch.Tensor(value_labels).to(device).reshape(1, -1))
@@ -329,13 +335,13 @@ def train_sl(file_paths, learning_rate=0.0001, model_path=None):
 
                         running_dist_loss += dist_loss.item()
                         running_value_loss += value_loss.item()
-                        if i % 1000 == 999:
-                            print(f'[{epoch + 1}, {i + 1}, {j + 1}] dist loss: {running_dist_loss / 1000:.3f}')
+                        if input_count % 2000 == 0:
+                            print(f'[{epoch + 1}, {input_count}] dist loss: {running_dist_loss / 2000:.3f}')
                             running_dist_loss = 0.0
 
-                            print(f'[{epoch + 1}, {i + 1}, {j + 1}] value loss: {running_value_loss / 1000:.3f}')
+                            print(f'[{epoch + 1}, {input_count}] value loss: {running_value_loss / 2000:.3f}')
                             running_value_loss = 0.0
-                            torch.save(player.brain.state_dict(), f'models/sl_model_{epoch + 1}_{i + 1}_{j + 1}.pth')
+                            torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{input_count}.pth')
 
 
 def filter_orders(dist, power_name, game):
