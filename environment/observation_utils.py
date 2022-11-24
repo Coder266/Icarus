@@ -153,7 +153,10 @@ def get_score_from_board_state(board_state):
 
 def get_last_phase_orders(game: Game):
     phase_history = Game.get_phase_history(game, from_phase=-1)
-    return phase_orders_to_rep(phase_history[0].orders)
+    if phase_history:
+        return phase_orders_to_rep(phase_history[0].orders)
+    else:
+        return phase_orders_to_rep([])
 
 
 def phase_orders_to_rep(phase_orders):

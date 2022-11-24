@@ -122,8 +122,7 @@ class Player:
         orderable_locs = game.get_orderable_locations()
         dist, _ = self.brain(board_state, prev_orders, [power_name], orderable_locs)
 
-        power_dist = F.softmax(dist[power_name])
-        actions = filter_orders(power_dist, power_name, game)
+        actions = filter_orders(dist[power_name], power_name, game)
 
         return [ix_to_order(ix) for ix in actions]
 
@@ -197,10 +196,10 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
             for power in ALL_POWERS:
                 power_orders = []
 
-                power_dist = F.softmax(dist[power])
+                power_dist = F.softmax(dist[power], dim=1)
 
                 if len(power_dist) > 0:
-                    actions = filter_orders(power_dist, power, game)
+                    actions = filter_orders(dist[power], power, game)
 
                     power_dist = Categorical(power_dist)
                     episode_log_probs[power].append(power_dist.log_prob(actions))
@@ -245,7 +244,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
-def train_sl(file_paths, learning_rate=0.0001, model_path=None):
+def train_sl(file_paths, learning_rate=0.001, model_path=None):
     def sort_orders(orderable_locs, orders):
         sorted_orders_by_power = {}
         for power in orderable_locs.keys():
@@ -317,7 +316,7 @@ def train_sl(file_paths, learning_rate=0.0001, model_path=None):
                         dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
 
                         # remove unsupported orders (ex. convoys longer than 4)
-                        to_remove = [i for i, label in enumerate(dist_labels) if label is None]
+                        to_remove = [i for i, label in enumerate(dist_labels) if label is None or label is 0]
                         for index in sorted(to_remove, reverse=True):
                             del dist_outputs[index]
                             del dist_labels[index]
@@ -335,11 +334,11 @@ def train_sl(file_paths, learning_rate=0.0001, model_path=None):
 
                         running_dist_loss += dist_loss.item()
                         running_value_loss += value_loss.item()
-                        if input_count % 2000 == 0:
-                            print(f'[{epoch + 1}, {input_count}] dist loss: {running_dist_loss / 2000:.3f}')
+                        if input_count % 10000 == 0:
+                            print(f'[{epoch + 1}, {input_count}] dist loss: {running_dist_loss / 10000:.3f}')
                             running_dist_loss = 0.0
 
-                            print(f'[{epoch + 1}, {input_count}] value loss: {running_value_loss / 2000:.3f}')
+                            print(f'[{epoch + 1}, {input_count}] value loss: {running_value_loss / 10000:.3f}')
                             running_value_loss = 0.0
                             torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{input_count}.pth')
 
@@ -348,12 +347,30 @@ def filter_orders(dist, power_name, game):
     orderable_locs = game.get_orderable_locations()
 
     dist_clone = dist.clone().detach()
+    order_mask = torch.ones_like(dist_clone, dtype=torch.bool)
     for i, loc in enumerate(orderable_locs[power_name]):
-        order_mask = torch.ones_like(dist_clone[i], dtype=torch.bool)
-        order_mask[get_loc_valid_orders(game, loc)] = False
-        dist_clone[i, :] = dist_clone[i, :].masked_fill(order_mask, value=0)
+        order_mask[i, get_loc_valid_orders(game, loc)] = False
+    # dist_clone[i, :] = dist_clone[i, :].masked_fill(order_mask, value=0)
 
-    dist_clone = Categorical(dist_clone)
+    state = game.get_state()
 
-    actions = dist_clone.sample()
+    n_builds = abs(state['builds'][power_name]['count'])
+
+    if n_builds > 0:
+        dist_clone = F.softmax(dist_clone.reshape(1, -1))
+
+        dist_clone[:, 0] = 0
+
+        dist_clone = dist_clone.masked_fill(order_mask.reshape(1, -1), value=0)
+
+        actions = [ix % len(dist[0]) for ix in torch.multinomial(dist_clone, n_builds)[0]]
+    else:
+        dist_clone = F.softmax(dist_clone, dim=1)
+
+        dist_clone = dist_clone.masked_fill(order_mask, value=0)
+
+        dist_clone = Categorical(dist_clone)
+
+        actions = dist_clone.sample()
+
     return actions
