@@ -326,9 +326,11 @@ def train_sl(file_paths, learning_rate=0.001, model_path=None):
                         else:
                             value_labels = [0] * 7
 
-                        dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
+                        if dist_labels:
+                            dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
+                            dist_loss.backward(retain_graph=True)
+
                         value_loss = criterion(value_outputs.reshape(1, -1), torch.Tensor(value_labels).to(device).reshape(1, -1))
-                        dist_loss.backward(retain_graph=True)
                         value_loss.backward()
                         optimizer.step()
 
