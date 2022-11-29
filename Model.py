@@ -9,21 +9,18 @@ from diplomacy import Game
 from diplomacy.utils.export import to_saved_game_format
 from torch.distributions import Categorical
 from tornado import gen
-import pandas as pd
 import jsonlines
 
 from StatTracker import StatTracker
 from environment.action_list import ACTION_LIST
 from environment.constants import ALL_POWERS, LOCATIONS, POWER_ACRONYMS_LIST
-from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders, \
-    get_score_from_board_state, phase_orders_to_rep
-from environment.order_utils import loc_to_rep, id_to_order, ORDER_SIZE, ix_to_order, get_valid_orders, \
-    get_loc_valid_orders, order_to_ix, loc_to_ix
+from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders, phase_orders_to_rep
+from environment.order_utils import ORDER_SIZE, ix_to_order, get_loc_valid_orders, order_to_ix, loc_to_ix
 
 import os
 
-#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-#os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
@@ -31,7 +28,7 @@ torch.autograd.set_detect_anomaly(True)
 
 
 class Encoder(nn.Module):
-    def __init__(self, state_size, embed_size, transformer_layers):
+    def __init__(self, state_size, embed_size, transformer_layers, transformer_heads):
         super(Encoder, self).__init__()
         self.embed_size = embed_size
         # Linear Layer: state (81*36) > encoding size (81*embed_size)
@@ -39,7 +36,7 @@ class Encoder(nn.Module):
         self.linear = nn.Linear(self.state_size, embed_size)
 
         # Torch Transformer
-        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_size, nhead=8)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_size, nhead=transformer_heads)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
 
     def forward(self, x_bo, x_po):
@@ -51,8 +48,8 @@ class Encoder(nn.Module):
 
 
 class Brain(nn.Module):
-    def __init__(self, state_size=LOC_VECTOR_LENGTH + ORDER_SIZE, embed_size=224, transformer_layers=10, lstm_layers=2,
-                 gamma=0.99):
+    def __init__(self, state_size=LOC_VECTOR_LENGTH + ORDER_SIZE, embed_size=224, transformer_layers=10,
+                 transformer_heads=8, lstm_layers=2, gamma=0.99):
         super(Brain, self).__init__()
 
         self.gamma = gamma
@@ -61,7 +58,7 @@ class Brain(nn.Module):
         self.lstm_layers = lstm_layers
 
         # Encoder
-        self.encoder = Encoder(state_size, embed_size, transformer_layers)
+        self.encoder = Encoder(state_size, embed_size, transformer_layers, transformer_heads)
 
         # Policy Network
         # LSTM Decoder: encoded state (embed_size) > action probabilities (len(ACTION_LIST))
@@ -106,8 +103,10 @@ class Brain(nn.Module):
 
 
 class Player:
-    def __init__(self, model_path=None):
-        self.brain = Brain()
+    def __init__(self, model_path=None, embed_size=224, transformer_layers=10, transformer_heads=8, lstm_layers=2,
+                 gamma=0.99):
+        self.brain = Brain(embed_size=embed_size, transformer_layers=transformer_layers,
+                           transformer_heads=transformer_heads, lstm_layers=lstm_layers, gamma=gamma)
 
         if model_path:
             self.brain.load_state_dict(torch.load(model_path))
@@ -244,7 +243,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
-def train_sl(file_paths, learning_rate=0.001, model_path=None):
+def train_sl(file_paths, dist_learning_rate=0.001, value_learning_rate=1e-6, model_path=None):
     def sort_orders(orderable_locs, orders):
         sorted_orders_by_power = {}
         for power in orderable_locs.keys():
@@ -268,17 +267,26 @@ def train_sl(file_paths, learning_rate=0.001, model_path=None):
 
     player.brain.train()
 
-    optimizer = optim.Adam(player.brain.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(
+        [
+            {"params": player.brain.encoder.parameters()},
+            {"params": player.brain.lstm.parameters()},
+            {"params": player.brain.linearPolicy.parameters()},
+            {"params": player.brain.linear1.parameters(), "lr": value_learning_rate},
+            {"params": player.brain.linear2.parameters(), "lr": value_learning_rate}
+        ],
+        lr=dist_learning_rate
+    )
     criterion = nn.CrossEntropyLoss()
 
+    running_dist_loss = 0.0
+    running_value_loss = 0.0
     for epoch in range(10):
-        running_dist_loss = 0.0
-        running_value_loss = 0.0
         input_count = 0
 
         for path in file_paths:
             with jsonlines.open(path) as reader:
-                for obj in reader:
+                for game_idx, obj in enumerate(reader):
                     note = obj['phases'][-1]['state']['note'].split(': ')
 
                     if note[0] == 'Victory by':
@@ -301,8 +309,9 @@ def train_sl(file_paths, learning_rate=0.001, model_path=None):
 
                         board_state = get_board_state(phase['state'])
                         prev_orders = phase_orders_to_rep(last_phase_orders)
-                        powers = list(phase['orders'].keys())
-                        orderable_locs = {power: [unit.split()[1] for unit in units] for power, units in phase['state']['units'].items()}
+                        powers = [k for k, i in phase['orders'].items() if i]
+                        orderable_locs = {power: [unit.split()[1] for unit in units]
+                                          for power, units in phase['state']['units'].items()}
                         orders = sort_orders(orderable_locs, phase['orders'])
 
                         last_phase_orders = orders
@@ -316,7 +325,7 @@ def train_sl(file_paths, learning_rate=0.001, model_path=None):
                         dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
 
                         # remove unsupported orders (ex. convoys longer than 4)
-                        to_remove = [i for i, label in enumerate(dist_labels) if label is None or label is 0]
+                        to_remove = [i for i, label in enumerate(dist_labels) if label is None or label == 0]
                         for index in sorted(to_remove, reverse=True):
                             del dist_outputs[index]
                             del dist_labels[index]
@@ -327,22 +336,23 @@ def train_sl(file_paths, learning_rate=0.001, model_path=None):
                             value_labels = [0] * 7
 
                         if dist_labels:
-                            dist_loss = criterion(torch.stack(dist_outputs).to(device), torch.LongTensor(dist_labels).to(device))
+                            dist_loss = criterion(torch.stack(dist_outputs).to(device),
+                                                  torch.LongTensor(dist_labels).to(device))
                             dist_loss.backward(retain_graph=True)
 
-                        value_loss = criterion(value_outputs.reshape(1, -1), torch.Tensor(value_labels).to(device).reshape(1, -1))
+                        value_loss = criterion(value_outputs.reshape(1, -1),
+                                               torch.Tensor(value_labels).to(device).reshape(1, -1))
                         value_loss.backward()
                         optimizer.step()
 
                         running_dist_loss += dist_loss.item()
                         running_value_loss += value_loss.item()
-                        if input_count % 10000 == 0:
-                            print(f'[{epoch + 1}, {input_count}] dist loss: {running_dist_loss / 10000:.3f}')
+                        if game_idx % 1000 == 999:
+                            print(f'[{epoch + 1}, {game_idx + 1}] dist loss: {running_dist_loss / 1000:.3f},'
+                                  f' value loss: {running_value_loss / 1000:.3f}')
                             running_dist_loss = 0.0
-
-                            print(f'[{epoch + 1}, {input_count}] value loss: {running_value_loss / 10000:.3f}')
                             running_value_loss = 0.0
-                            torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{input_count}.pth')
+                        torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{input_count}.pth')
 
 
 def filter_orders(dist, power_name, game):
