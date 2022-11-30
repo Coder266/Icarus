@@ -347,12 +347,15 @@ def train_sl(file_paths, dist_learning_rate=0.001, value_learning_rate=1e-6, mod
 
                         running_dist_loss += dist_loss.item()
                         running_value_loss += value_loss.item()
-                        if game_idx % 1000 == 999:
-                            print(f'[{epoch + 1}, {game_idx + 1}] dist loss: {running_dist_loss / 1000:.3f},'
-                                  f' value loss: {running_value_loss / 1000:.3f}')
-                            running_dist_loss = 0.0
-                            running_value_loss = 0.0
-                        torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{input_count}.pth')
+                    
+                    print(f'[{epoch + 1}, {game_idx + 1}] dist loss: {running_dist_loss / input_count:.3f},'
+                         f' value loss: {running_value_loss / input_count:.3f}')
+                    running_dist_loss = 0.0
+                    running_value_loss = 0.0
+                    input_count = 0
+                    
+                    if game_idx % 100 == 99:
+                        torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{game_idx}.pth')
 
 
 def filter_orders(dist, power_name, game):
