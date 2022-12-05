@@ -35,6 +35,7 @@ class Encoder(nn.Module):
         self.state_size = state_size
         self.linear = nn.Linear(self.state_size, embed_size)
 
+        self.positional_bias = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(len(LOCATIONS), 1, embed_size)))
         # Torch Transformer
         encoder_layer = nn.TransformerEncoderLayer(d_model=embed_size, nhead=transformer_heads)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
@@ -43,6 +44,7 @@ class Encoder(nn.Module):
         x = torch.cat([x_bo, x_po], -1)
         x = self.linear(x)
         x = torch.reshape(x, (-1, 1, self.embed_size))
+        x = x + self.positional_bias
         x = self.transformer_encoder(x)
         return x
 
@@ -243,7 +245,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None):
             torch.save(player.brain.state_dict(), f'models/model_{episode}.pth')
 
 
-def train_sl(file_paths, dist_learning_rate=0.001, value_learning_rate=1e-6, model_path=None):
+def train_sl(file_paths, dist_learning_rate=0.0001, value_learning_rate=1e-6, model_path=None):
     def sort_orders(orderable_locs, orders):
         sorted_orders_by_power = {}
         for power in orderable_locs.keys():
@@ -282,11 +284,13 @@ def train_sl(file_paths, dist_learning_rate=0.001, value_learning_rate=1e-6, mod
     running_dist_loss = 0.0
     running_value_loss = 0.0
     for epoch in range(10):
-        input_count = 0
+        game_count = 0
 
         for path in file_paths:
             with jsonlines.open(path) as reader:
-                for game_idx, obj in enumerate(reader):
+                for obj in reader:
+                    game_count += 1
+
                     note = obj['phases'][-1]['state']['note'].split(': ')
 
                     if note[0] == 'Victory by':
@@ -331,7 +335,7 @@ def train_sl(file_paths, dist_learning_rate=0.001, value_learning_rate=1e-6, mod
                             del dist_labels[index]
 
                         if sum(final_score) != 0:
-                            value_labels = [score/sum(final_score) for score in final_score]
+                            value_labels = [score / sum(final_score) for score in final_score]
                         else:
                             value_labels = [0] * 7
 
@@ -347,15 +351,17 @@ def train_sl(file_paths, dist_learning_rate=0.001, value_learning_rate=1e-6, mod
 
                         running_dist_loss += dist_loss.item()
                         running_value_loss += value_loss.item()
-                    
-                    print(f'[{epoch + 1}, {game_idx + 1}] dist loss: {running_dist_loss / input_count:.3f},'
-                         f' value loss: {running_value_loss / input_count:.3f}')
+
+                    print(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / input_count:.3f},'
+                          f' value loss: {running_value_loss / input_count:.3f}')
                     running_dist_loss = 0.0
                     running_value_loss = 0.0
                     input_count = 0
-                    
-                    if game_idx % 100 == 99:
-                        torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{game_idx}.pth')
+
+                    if game_count % 1000 == 0:
+                        torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{game_count}.pth')
+
+        torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{game_count}_full.pth')
 
 
 def filter_orders(dist, power_name, game):
@@ -372,20 +378,24 @@ def filter_orders(dist, power_name, game):
     n_builds = abs(state['builds'][power_name]['count'])
 
     if n_builds > 0:
-        dist_clone = F.softmax(dist_clone.reshape(1, -1))
+        # removes WAIVE order
+        order_mask[:, 0] = True
+        dist_clone = dist_clone.masked_fill(order_mask.reshape(-1), value=-torch.inf)
 
-        dist_clone[:, 0] = 0
+        dist_clone = F.softmax(dist_clone.reshape(-1), dim=0)
 
-        dist_clone = dist_clone.masked_fill(order_mask.reshape(1, -1), value=0)
+        # if sum(dist_clone) <= 0:
+        #     actions = []
+        # else:
 
-        actions = [ix % len(dist[0]) for ix in torch.multinomial(dist_clone, n_builds)[0]]
+        # selects the n_builds more likely build/disband actions
+        actions = [ix % len(dist[0]) for ix in torch.multinomial(dist_clone, n_builds)]
     else:
+        dist_clone = dist_clone.masked_fill(order_mask, value=-torch.inf)
+
         dist_clone = F.softmax(dist_clone, dim=1)
 
-        dist_clone = dist_clone.masked_fill(order_mask, value=0)
-
-        dist_clone = Categorical(dist_clone)
-
-        actions = dist_clone.sample()
+        # actions = [torch.multinomial(loc_dist, 1).item() for loc_dist in dist_clone if sum(loc_dist) > 0]
+        actions = torch.multinomial(dist_clone, 1)
 
     return actions
