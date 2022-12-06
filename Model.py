@@ -283,6 +283,7 @@ def train_sl(file_paths, dist_learning_rate=0.0001, value_learning_rate=1e-6, mo
 
     running_dist_loss = 0.0
     running_value_loss = 0.0
+    running_accuracy = 0.0
     for epoch in range(10):
         game_count = 0
 
@@ -290,6 +291,8 @@ def train_sl(file_paths, dist_learning_rate=0.0001, value_learning_rate=1e-6, mo
             with jsonlines.open(path) as reader:
                 for obj in reader:
                     game_count += 1
+                    value_input_count = 0
+                    dist_input_count = 0
 
                     note = obj['phases'][-1]['state']['note'].split(': ')
 
@@ -307,8 +310,6 @@ def train_sl(file_paths, dist_learning_rate=0.0001, value_learning_rate=1e-6, mo
                     last_phase_orders = []
 
                     for phase in obj['phases']:
-                        input_count += 1
-
                         optimizer.zero_grad()
 
                         board_state = get_board_state(phase['state'])
@@ -344,19 +345,27 @@ def train_sl(file_paths, dist_learning_rate=0.0001, value_learning_rate=1e-6, mo
                                                   torch.LongTensor(dist_labels).to(device))
                             dist_loss.backward(retain_graph=True)
 
+                            dist_input_count += 1
+                            running_dist_loss += dist_loss.item()
+                            running_accuracy = sum(1 for x, y in zip(dist_outputs, dist_labels) if x.argmax() == y) / len(dist_labels)
+
                         value_loss = criterion(value_outputs.reshape(1, -1),
                                                torch.Tensor(value_labels).to(device).reshape(1, -1))
                         value_loss.backward()
                         optimizer.step()
 
-                        running_dist_loss += dist_loss.item()
+                        value_input_count += 1
+
                         running_value_loss += value_loss.item()
 
-                    print(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / input_count:.3f},'
-                          f' value loss: {running_value_loss / input_count:.3f}')
+                    print(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
+                          f' value loss: {running_value_loss / value_input_count:.3f},'
+                          f' accuracy: {running_accuracy / dist_input_count * 100:.2f}%')
                     running_dist_loss = 0.0
                     running_value_loss = 0.0
-                    input_count = 0
+                    running_accuracy = 0.0
+                    value_input_count = 0
+                    dist_input_count = 0
 
                     if game_count % 1000 == 0:
                         torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{game_count}.pth')
