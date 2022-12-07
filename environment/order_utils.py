@@ -1,5 +1,7 @@
 import numpy as np
+import torch
 from diplomacy import Game
+from torch.nn import functional as F
 
 from environment.action_list import ACTION_LIST
 from environment.constants import *
@@ -336,3 +338,40 @@ def get_unit_owner(game, unit):
         raise ValueError(f"No unit {' '.join(unit)}")
 
     return unit_owner
+
+
+def filter_orders(dist, power_name, game):
+    orderable_locs = game.get_orderable_locations()
+
+    dist_clone = dist.clone().detach()
+    order_mask = torch.ones_like(dist_clone, dtype=torch.bool)
+    for i, loc in enumerate(orderable_locs[power_name]):
+        order_mask[i, get_loc_valid_orders(game, loc)] = False
+    # dist_clone[i, :] = dist_clone[i, :].masked_fill(order_mask, value=0)
+
+    state = game.get_state()
+
+    n_builds = abs(state['builds'][power_name]['count'])
+
+    if n_builds > 0:
+        # removes WAIVE order
+        order_mask[:, 0] = True
+        dist_clone = dist_clone.masked_fill(order_mask, value=-torch.inf)
+
+        dist_clone = F.softmax(dist_clone.reshape(-1), dim=0)
+
+        # if sum(dist_clone) <= 0:
+        #     actions = []
+        # else:
+
+        # selects the n_builds more likely build/disband actions
+        actions = [ix % len(dist[0]) for ix in torch.multinomial(dist_clone, n_builds)]
+    else:
+        dist_clone = dist_clone.masked_fill(order_mask, value=-torch.inf)
+
+        dist_clone = F.softmax(dist_clone, dim=1)
+
+        # actions = [torch.multinomial(loc_dist, 1).item() for loc_dist in dist_clone if sum(loc_dist) > 0]
+        actions = torch.multinomial(dist_clone, 1)
+
+    return actions
