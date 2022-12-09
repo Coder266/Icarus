@@ -340,38 +340,64 @@ def get_unit_owner(game, unit):
     return unit_owner
 
 
-def filter_orders(dist, power_name, game):
-    orderable_locs = game.get_orderable_locations()
-
+def filter_orders(dist, power_name, game, orderable_locs):
     dist_clone = dist.clone().detach()
     order_mask = torch.ones_like(dist_clone, dtype=torch.bool)
     for i, loc in enumerate(orderable_locs[power_name]):
         order_mask[i, get_loc_valid_orders(game, loc)] = False
-    # dist_clone[i, :] = dist_clone[i, :].masked_fill(order_mask, value=0)
+
+    dist_clone = dist_clone.masked_fill(order_mask, value=-torch.inf)
+
+    return dist_clone
+
+
+def select_orders(dist, power_name, game, orderable_locs):
+    dist_clone = filter_orders(dist, power_name, game, orderable_locs)
 
     state = game.get_state()
 
     n_builds = abs(state['builds'][power_name]['count'])
 
     if n_builds > 0:
-        # removes WAIVE order
-        order_mask[:, 0] = True
-        dist_clone = dist_clone.masked_fill(order_mask, value=-torch.inf)
+        dist_clone[:, 0] = - torch.inf
 
         dist_clone = F.softmax(dist_clone.reshape(-1), dim=0)
 
-        # if sum(dist_clone) <= 0:
-        #     actions = []
-        # else:
-
-        # selects the n_builds more likely build/disband actions
         actions = [ix % len(dist[0]) for ix in torch.multinomial(dist_clone, n_builds)]
     else:
-        dist_clone = dist_clone.masked_fill(order_mask, value=-torch.inf)
-
         dist_clone = F.softmax(dist_clone, dim=1)
 
-        # actions = [torch.multinomial(loc_dist, 1).item() for loc_dist in dist_clone if sum(loc_dist) > 0]
         actions = torch.multinomial(dist_clone, 1)
 
     return actions
+
+
+def get_max_orders(dist, power_name, game, orderable_locs):
+    dist_clone = filter_orders(dist, power_name, game, orderable_locs)
+
+    state = game.get_state()
+
+    n_builds = abs(state['builds'][power_name]['count'])
+
+    if n_builds > 0:
+        dist_clone[:, 0] = - torch.inf
+
+        dist_clone = F.softmax(dist_clone.reshape(-1), dim=0)
+
+        actions = [ix % len(dist[0]) for ix in torch.topk(dist_clone, n_builds).indices]
+    else:
+        dist_clone = F.softmax(dist_clone, dim=1)
+
+        actions = torch.argmax(dist_clone, dim=1)
+
+    return actions
+
+
+def remove_illegal_orders(dist, labels):
+    # remove unsupported orders (ex. convoys longer than 4)
+    to_remove = [i for i, label in enumerate(labels) if label is None or label == 0]
+    for index in sorted(to_remove, reverse=True):
+        del dist[index]
+        del labels[index]
+
+    return dist, labels

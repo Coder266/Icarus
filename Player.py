@@ -6,7 +6,7 @@ from tornado import gen
 from environment.action_list import ACTION_LIST
 from environment.constants import LOCATIONS, ALL_POWERS
 from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders
-from environment.order_utils import ORDER_SIZE, loc_to_ix, ix_to_order, filter_orders
+from environment.order_utils import ORDER_SIZE, loc_to_ix, ix_to_order, select_orders
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
@@ -33,7 +33,7 @@ class Player:
         orderable_locs = game.get_orderable_locations()
         dist, _ = self.brain(board_state, prev_orders, [power_name], orderable_locs)
 
-        actions = filter_orders(dist[power_name], power_name, game)
+        actions = select_orders(dist[power_name], power_name, game, orderable_locs)
 
         return [ix_to_order(ix) for ix in actions]
 

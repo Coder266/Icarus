@@ -8,7 +8,7 @@ import os
 
 def parse_args():
     parser = argparse.ArgumentParser(description='MyBot - Diplomacy AI')
-    parser.add_argument('dataset_path', type=str, nargs='+',
+    parser.add_argument('dataset_path', type=str,
                         help='jsonlines file with games to learn from')
     parser.add_argument('-g', '--gpu', help='gpu id for cuda to use',
                         type=int, default=0)
@@ -22,7 +22,7 @@ def parse_args():
                         type=str, default='sl_')
     parser.add_argument('-d', '--dist_lr',
                         help='learning rate for the policy distribution layers of the model, default is 1e-4',
-                        type=float, default=1e-4)
+                        type=float, default=1e-5)
     parser.add_argument('-v', '--value_lr', help='learning rate for the value layers of the model, default is 1e-6',
                         type=float, default=1e-6)
     parser.add_argument('-e', '--embed_size',
@@ -30,6 +30,8 @@ def parse_args():
                         type=int, default=224)
     parser.add_argument('-t', '--transformer_layers', help='number of transformer layers, default is 10',
                         type=int, default=10)
+    parser.add_argument('--validation_size', help='number of games to keep in the validation set, default is 200',
+                        type=int, default=200)
     parser.add_argument('--transformer_heads', help='number of transformer multi-attention heads, default is 8',
                         type=int, default=8)
     parser.add_argument('--lstm_layers', help='number of lstm layers, default is 2',
@@ -46,6 +48,6 @@ if __name__ == "__main__":
     train_sl(dataset_path=args.dataset_path,
              model_path=args.model_path, print_ratio=args.print_ratio, save_ratio=args.save_ratio,
              output_header=args.output_header,
-             dist_learning_rate=args.dist_lr, value_learning_rate=args.value_lr,
+             dist_learning_rate=args.dist_lr, value_learning_rate=args.value_lr, validation_size=args.validation_size,
              embed_size=args.embed_size, transformer_layers=args.transformer_layers,
              transformer_heads=args.transformer_heads, lstm_layers=args.lstm_layers)

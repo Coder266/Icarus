@@ -1,5 +1,6 @@
 # Custom
 old_models
+tmp/
 
 # Pycharm
 .idea

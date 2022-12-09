@@ -1,35 +1,18 @@
 import jsonlines
 import torch
+from diplomacy import Game
 from torch import optim as optim, nn as nn
 
 from Player import Player, device
 from environment.constants import POWER_ACRONYMS_LIST, ALL_POWERS
 from environment.observation_utils import get_board_state, phase_orders_to_rep
-from environment.order_utils import order_to_ix
+from environment.order_utils import order_to_ix, filter_orders, remove_illegal_orders, get_max_orders
 
 
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, output_header='sl_model_DipNet',
-             dist_learning_rate=1e-4, value_learning_rate=1e-6,
+             dist_learning_rate=1e-4, value_learning_rate=1e-6, validation_size=200,
              embed_size=224, transformer_layers=10, transformer_heads=8, lstm_layers=2):
-    def sort_orders(orderable_locs, orders):
-        # TODO cleanup funcion, remove useless WAIVES
-        sorted_orders_by_power = {}
-        for power in orderable_locs.keys():
-            sorted_orders = []
-            for loc in orderable_locs[power]:
-                done = False
-                if orders[power] is None:
-                    sorted_orders.append('WAIVE')
-                else:
-                    for order in orders[power]:
-                        if order != 'WAIVE' and loc in order.split()[1]:
-                            sorted_orders.append(order)
-                            done = True
-                            break
-                    if not done:
-                        sorted_orders.append('WAIVE')
-            sorted_orders_by_power[power] = sorted_orders
-        return sorted_orders_by_power
 
     player = Player(model_path, embed_size=embed_size, transformer_layers=transformer_layers,
                     transformer_heads=transformer_heads, lstm_layers=lstm_layers)
@@ -48,106 +31,149 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
     )
     criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(10):
+    num_games = sum(1 for _ in open(dataset_path))
+
+    for epoch in range(500):
         game_count = 0
         value_input_count = 0
         dist_input_count = 0
         running_dist_loss = 0.0
         running_value_loss = 0.0
-        running_accuracy = 0.0
+        running_total_accuracy = 0.0
+        running_power_accuracy = 0.0
 
-        for path in dataset_path:
-            with jsonlines.open(path) as reader:
-                for _ in range(6):
-                    reader.read()
+        with jsonlines.open(dataset_path) as reader:
+            for obj in reader:
+                game_count += 1
 
-                obj = reader.read()
-                for _ in range(1000):
-                # for obj in reader:
-                    game_count += 1
+                validate = game_count > (num_games - validation_size)
 
-                    # calculate final score for use in value learning
-                    note = obj['phases'][-1]['state']['note'].split(': ')
+                if game_count == num_games - validation_size + 1:
+                    print(f"Calculating accuracy using the validation set (last {validation_size} games)...")
 
-                    if note[0] == 'Victory by':
-                        final_score = [int(note[1] == power) * 34 for power in POWER_ACRONYMS_LIST]
-                    else:
-                        last_phase = obj['phases'][-1]
-                        # final_score should be
-                        # final_score = [score/sum(final_score) * 34 for score in final_score]
-                        # but it is not needed here since we only need the proportion
-                        final_score = [len(last_phase['state']['centers'][power])
-                                       if power in last_phase['state']['centers']
-                                       else 0 for power in ALL_POWERS]
+                # calculate final score for use in value learning
+                note = obj['phases'][-1]['state']['note'].split(': ')
 
-                    last_phase_orders = []
+                if note[0] == 'Victory by':
+                    final_score = [int(note[1] == power) * 34 for power in POWER_ACRONYMS_LIST]
+                else:
+                    last_phase = obj['phases'][-1]
+                    # final_score should be
+                    # final_score = [score/sum(final_score) * 34 for score in final_score]
+                    # but it is not needed here since we only need the proportion
+                    final_score = [len(last_phase['state']['centers'][power])
+                                   if power in last_phase['state']['centers']
+                                   else 0 for power in ALL_POWERS]
 
-                    # remove powers if they end with less than 7 SCs
-                    # powers_to_learn = [ALL_POWERS[i] for i, score in enumerate(final_score) if score >= 7]
-                    powers_to_learn = ALL_POWERS
+                value_labels = [score / sum(final_score) for score in final_score]
 
-                    for phase in obj['phases']:
-                        optimizer.zero_grad()
+                # remove powers if they end with less than 7 SCs
+                powers_to_learn = [ALL_POWERS[i] for i, score in enumerate(final_score) if score >= 7]
 
-                        board_state = get_board_state(phase['state'])
-                        prev_orders = phase_orders_to_rep(last_phase_orders)
-                        powers = [power for power, orders in phase['orders'].items() if orders
-                                  and power in powers_to_learn]
-                        orderable_locs = {power: [unit.split()[1] for unit in units]
-                                          for power, units in phase['state']['units'].items()}
-                        orders = sort_orders(orderable_locs, phase['orders'])
+                last_phase_orders = []
+                for phase in obj['phases']:
+                    optimizer.zero_grad()
 
-                        last_phase_orders = orders
+                    board_state = get_board_state(phase['state'])
+                    prev_orders = phase_orders_to_rep(last_phase_orders)
+                    powers = [power for power, orders in phase['orders'].items() if orders
+                              and power in powers_to_learn]
+                    orderable_locs = {power: [order.split()[1] for order in orders if order != "WAIVE"]
+                                      for power, orders in phase['orders'].items() if power in powers}
+                    orders = phase['orders']
 
-                        dist, value_outputs = player.brain(torch.Tensor(board_state).to(device),
-                                                           torch.Tensor(prev_orders).to(device),
-                                                           powers,
-                                                           orderable_locs)
+                    last_phase_orders = orders
 
-                        dist_outputs = [probs for power in powers for probs in dist[power]]
-                        dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
+                    dist, value_outputs = player.brain(torch.Tensor(board_state).to(device),
+                                                       torch.Tensor(prev_orders).to(device),
+                                                       powers,
+                                                       orderable_locs)
 
-                        # remove unsupported orders (ex. convoys longer than 4)
-                        to_remove = [i for i, label in enumerate(dist_labels) if label is None or label == 0]
-                        for index in sorted(to_remove, reverse=True):
-                            del dist_outputs[index]
-                            del dist_labels[index]
+                    # policy network update
+                    dist_outputs = [probs for power in powers for probs in dist[power]]
+                    dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
 
-                        if sum(final_score) != 0:
-                            value_labels = [score / sum(final_score) for score in final_score]
-                        else:
-                            value_labels = [0] * 7
+                    dist_outputs, dist_labels = remove_illegal_orders(dist_outputs, dist_labels)
 
-                        if dist_labels:
+                    if dist_labels:
+                        if not validate:
                             dist_loss = criterion(torch.stack(dist_outputs).to(device),
                                                   torch.LongTensor(dist_labels).to(device))
                             dist_loss.backward(retain_graph=True)
 
-                            dist_input_count += 1
                             running_dist_loss += dist_loss.item()
-                            # TODO calculate accuracy differently
-                            running_accuracy = sum(1 for x, y in zip(dist_outputs, dist_labels) if x.argmax() == y) / len(dist_labels)
+                        # metrics
+                        dist_input_count += 1
 
+                        total_accuracy, power_accuracy = calculate_accuracy(phase['state'],
+                                                                            powers, dist, orders, orderable_locs)
+                        running_total_accuracy += total_accuracy
+                        running_power_accuracy += power_accuracy
+
+                    # value network update
+                    if not validate:
                         value_loss = criterion(value_outputs.reshape(1, -1),
                                                torch.Tensor(value_labels).to(device).reshape(1, -1))
                         value_loss.backward()
-                        optimizer.step()
-
-                        value_input_count += 1
 
                         running_value_loss += value_loss.item()
 
-                    if print_ratio != 0 and game_count % print_ratio == 0:
-                        print(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
-                              f' value loss: {running_value_loss / value_input_count:.3f},'
-                              f' accuracy: {running_accuracy / dist_input_count * 100:.2f}%')
-                        running_dist_loss = 0.0
-                        running_value_loss = 0.0
-                        running_accuracy = 0.0
-                        value_input_count = 0
-                        dist_input_count = 0
+                        optimizer.step()
 
-                    if save_ratio != 0 and game_count % save_ratio == 0:
-                        torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}.pth')
+                    # metrics
+                    value_input_count += 1
 
-        torch.save(player.brain.state_dict(), f'models/sl_model_DipNet_{epoch + 1}_{game_count}_full.pth')
+                if print_ratio != 0 and game_count % print_ratio == 0 and not validate:
+                    print(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
+                          f' value loss: {running_value_loss / value_input_count:.3f},'
+                          f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%,'
+                          f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%')
+                    running_dist_loss = 0.0
+                    running_value_loss = 0.0
+                    running_total_accuracy = 0.0
+                    running_power_accuracy = 0.0
+                    value_input_count = 0
+                    dist_input_count = 0
+
+                if save_ratio != 0 and game_count % save_ratio == 0:
+                    torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}.pth')
+
+        print(f"Validation set accuracy for epoch {epoch + 1}:\n"
+              f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%\n'
+              f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%\n')
+
+        if save_ratio != 0:
+            torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}_full.pth')
+
+
+def calculate_accuracy(state, powers, dist, orders, orderable_locs):
+    game = Game()
+    game.set_state(state)
+    count = 0
+    total_accuracy = 0
+    power_accuracy = {}
+    for power in powers:
+        power_outputs = get_max_orders(dist[power], power, game, orderable_locs)
+
+        # orders to labels
+        power_labels = [order_to_ix(order) for order in orders[power]]
+
+        n_builds = abs(state['builds'][power]['count'])
+
+        if n_builds > 0:
+            power_outputs = [tensor.item() for tensor in power_outputs]
+            accuracy = len(set(power_outputs).intersection(set(power_labels)))
+            total_accuracy += accuracy
+            power_accuracy[power] = accuracy == len(power_labels)
+        else:
+            # remove illegal labels
+            power_outputs, power_labels = remove_illegal_orders(power_outputs, power_labels)
+
+            if len(power_labels) > 0:
+                accuracy = sum(1 for x, y in zip(power_outputs, power_labels) if x == y)
+                total_accuracy += accuracy
+                power_accuracy[power] = accuracy == len(power_labels)
+
+        count += len(power_labels)
+
+    return total_accuracy / count, sum(power_accuracy.values()) / len(power_accuracy)

@@ -12,7 +12,7 @@ from Player import Player, device
 from StatTracker import StatTracker
 from environment.constants import ALL_POWERS
 from environment.observation_utils import get_board_state, get_last_phase_orders
-from environment.order_utils import ix_to_order, filter_orders
+from environment.order_utils import ix_to_order, select_orders
 
 
 def train_rl(num_episodes, learning_rate=0.001, model_path=None, gamma=0.99):
@@ -87,7 +87,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None, gamma=0.99):
                 power_dist = F.softmax(dist[power], dim=1)
 
                 if len(power_dist) > 0:
-                    actions = filter_orders(dist[power], power, game)
+                    actions = select_orders(dist[power], power, game, orderable_locs)
 
                     power_dist = Categorical(power_dist)
                     episode_log_probs[power].append(power_dist.log_prob(actions))
