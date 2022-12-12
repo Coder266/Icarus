@@ -14,7 +14,6 @@ from environment.action_list import ACTION_LIST
 def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, output_header='sl_model_DipNet',
              dist_learning_rate=1e-4, value_learning_rate=1e-6, validation_size=200,
              embed_size=224, transformer_layers=10, transformer_heads=8, lstm_layers=2):
-
     player = Player(model_path, embed_size=embed_size, transformer_layers=transformer_layers,
                     transformer_heads=transformer_heads, lstm_layers=lstm_layers)
 
@@ -79,7 +78,8 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                     prev_orders = phase_orders_to_rep(last_phase_orders)
                     powers = [power for power, orders in phase['orders'].items() if orders
                               and power in powers_to_learn]
-                    orders = [order for order in phase['orders'] if order != "WAIVE" and order in ACTION_LIST]
+                    orders = {power: [order for order in orders if order != "WAIVE" and order in ACTION_LIST]
+                              for power, orders in phase['orders'].items() if power in powers}
                     orderable_locs = {power: [order.split()[1] for order in orders]
                                       for power, orders in phase['orders'].items() if power in powers}
 
