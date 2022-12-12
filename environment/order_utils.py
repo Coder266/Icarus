@@ -391,13 +391,3 @@ def get_max_orders(dist, power_name, game, orderable_locs):
         actions = torch.argmax(dist_clone, dim=1)
 
     return actions
-
-
-def remove_illegal_orders(dist, labels):
-    # remove unsupported orders (ex. convoys longer than 4)
-    to_remove = [i for i, label in enumerate(labels) if label is None or label == 0]
-    for index in sorted(to_remove, reverse=True):
-        del dist[index]
-        del labels[index]
-
-    return dist, labels

@@ -6,7 +6,7 @@ from torch import optim as optim, nn as nn
 from Player import Player, device
 from environment.constants import POWER_ACRONYMS_LIST, ALL_POWERS
 from environment.observation_utils import get_board_state, phase_orders_to_rep
-from environment.order_utils import order_to_ix, filter_orders, remove_illegal_orders, get_max_orders
+from environment.order_utils import order_to_ix, get_max_orders
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
@@ -78,7 +78,8 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                     prev_orders = phase_orders_to_rep(last_phase_orders)
                     powers = [power for power, orders in phase['orders'].items() if orders
                               and power in powers_to_learn]
-                    orderable_locs = {power: [order.split()[1] for order in orders if order != "WAIVE"]
+                    orderable_locs = {power: [order.split()[1] for order in orders
+                                              if order != "WAIVE" and order in ACTION_LIST]
                                       for power, orders in phase['orders'].items() if power in powers}
                     orders = phase['orders']
 
@@ -92,8 +93,6 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                     # policy network update
                     dist_outputs = [probs for power in powers for probs in dist[power]]
                     dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
-
-                    dist_outputs, dist_labels = remove_illegal_orders(dist_outputs, dist_labels)
 
                     if dist_labels:
                         if not validate:
@@ -166,9 +165,6 @@ def calculate_accuracy(state, powers, dist, orders, orderable_locs):
             total_accuracy += accuracy
             power_accuracy[power] = accuracy == len(power_labels)
         else:
-            # remove illegal labels
-            power_outputs, power_labels = remove_illegal_orders(power_outputs, power_labels)
-
             if len(power_labels) > 0:
                 accuracy = sum(1 for x, y in zip(power_outputs, power_labels) if x == y)
                 total_accuracy += accuracy
