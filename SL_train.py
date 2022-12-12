@@ -82,7 +82,7 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                     orderable_locs = {power: [order.split()[1] for order in orders
                                               if order != "WAIVE" and order in ACTION_LIST]
                                       for power, orders in phase['orders'].items() if power in powers}
-                    orders = phase['orders']
+                    orders = [order for order in phase['orders'] if order in ACTION_LIST]
 
                     last_phase_orders = orders
 
