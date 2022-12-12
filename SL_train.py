@@ -7,6 +7,7 @@ from Player import Player, device
 from environment.constants import POWER_ACRONYMS_LIST, ALL_POWERS
 from environment.observation_utils import get_board_state, phase_orders_to_rep
 from environment.order_utils import order_to_ix, get_max_orders
+from environment.action_list import ACTION_LIST
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
