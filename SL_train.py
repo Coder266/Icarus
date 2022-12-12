@@ -152,24 +152,25 @@ def calculate_accuracy(state, powers, dist, orders, orderable_locs):
     total_accuracy = 0
     power_accuracy = {}
     for power in powers:
-        power_outputs = get_max_orders(dist[power], power, game, orderable_locs)
+        if orders[power]:
+            power_outputs = get_max_orders(dist[power], power, game, orderable_locs)
 
-        # orders to labels
-        power_labels = [order_to_ix(order) for order in orders[power]]
+            # orders to labels
+            power_labels = [order_to_ix(order) for order in orders[power]]
 
-        n_builds = abs(state['builds'][power]['count'])
+            n_builds = abs(state['builds'][power]['count'])
 
-        if n_builds > 0:
-            power_outputs = [tensor.item() for tensor in power_outputs]
-            accuracy = len(set(power_outputs).intersection(set(power_labels)))
-            total_accuracy += accuracy
-            power_accuracy[power] = accuracy == len(power_labels)
-        else:
-            if len(power_labels) > 0:
-                accuracy = sum(1 for x, y in zip(power_outputs, power_labels) if x == y)
+            if n_builds > 0:
+                power_outputs = [tensor.item() for tensor in power_outputs]
+                accuracy = len(set(power_outputs).intersection(set(power_labels)))
                 total_accuracy += accuracy
                 power_accuracy[power] = accuracy == len(power_labels)
+            else:
+                if len(power_labels) > 0:
+                    accuracy = sum(1 for x, y in zip(power_outputs, power_labels) if x == y)
+                    total_accuracy += accuracy
+                    power_accuracy[power] = accuracy == len(power_labels)
 
-        count += len(power_labels)
+            count += len(power_labels)
 
     return total_accuracy / count, sum(power_accuracy.values()) / len(power_accuracy)
