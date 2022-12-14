@@ -20,6 +20,8 @@ def parse_args():
                         type=int, default=0)
     parser.add_argument('-o', '--output_header', help='header for the name of the output model file, default is sl_',
                         type=str, default='sl_')
+    parser.add_argument('-l', '--log_file', help='name of the log file',
+                        type=str, default=None)
     parser.add_argument('-d', '--dist_lr',
                         help='learning rate for the policy distribution layers of the model, default is 1e-4',
                         type=float, default=1e-5)
@@ -34,6 +36,8 @@ def parse_args():
                         type=int, default=200)
     parser.add_argument('--transformer_heads', help='number of transformer multi-attention heads, default is 8',
                         type=int, default=8)
+    parser.add_argument('--lstm_size', help='width of lstm, default is 200',
+                        type=int, default=200)
     parser.add_argument('--lstm_layers', help='number of lstm layers, default is 2',
                         type=int, default=2)
     return parser.parse_args()
@@ -47,7 +51,7 @@ if __name__ == "__main__":
 
     train_sl(dataset_path=args.dataset_path,
              model_path=args.model_path, print_ratio=args.print_ratio, save_ratio=args.save_ratio,
-             output_header=args.output_header,
+             output_header=args.output_header, log_file=args.log_file,
              dist_learning_rate=args.dist_lr, value_learning_rate=args.value_lr, validation_size=args.validation_size,
              embed_size=args.embed_size, transformer_layers=args.transformer_layers,
-             transformer_heads=args.transformer_heads, lstm_layers=args.lstm_layers)
+             transformer_heads=args.transformer_heads, lstm_size=args.lstm_size, lstm_layers=args.lstm_layers)

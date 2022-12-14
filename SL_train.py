@@ -8,14 +8,25 @@ from environment.constants import POWER_ACRONYMS_LIST, ALL_POWERS
 from environment.observation_utils import get_board_state, phase_orders_to_rep
 from environment.order_utils import order_to_ix, get_max_orders
 from environment.action_list import ACTION_LIST
+import logging
+import sys
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
 def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, output_header='sl_model_DipNet',
-             dist_learning_rate=1e-4, value_learning_rate=1e-6, validation_size=200,
-             embed_size=224, transformer_layers=10, transformer_heads=8, lstm_layers=2):
+             log_file=None, dist_learning_rate=1e-4, value_learning_rate=1e-6, validation_size=200,
+             embed_size=224, transformer_layers=10, transformer_heads=8, lstm_size=200, lstm_layers=2):
+
+    # Logging
+    handlers = [logging.StreamHandler(stream=sys.stdout)]
+    if log_file:
+        handlers.append(logging.FileHandler(filename=log_file))
+
+    logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO, handlers=handlers)
+
+    # Create player and set parameters
     player = Player(model_path, embed_size=embed_size, transformer_layers=transformer_layers,
-                    transformer_heads=transformer_heads, lstm_layers=lstm_layers)
+                    transformer_heads=transformer_heads, lstm_size=lstm_size, lstm_layers=lstm_layers)
 
     player.brain.train()
 
@@ -29,6 +40,7 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
         ],
         lr=dist_learning_rate
     )
+
     criterion = nn.CrossEntropyLoss()
 
     num_games = sum(1 for _ in open(dataset_path))
@@ -49,7 +61,7 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                 validate = game_count > (num_games - validation_size)
 
                 if game_count == num_games - validation_size + 1:
-                    print(f"Calculating accuracy using the validation set (last {validation_size} games)...")
+                    logging.info(f"Calculating accuracy using the validation set (last {validation_size} games)...")
 
                 # calculate final score for use in value learning
                 note = obj['phases'][-1]['state']['note'].split(': ')
@@ -65,6 +77,10 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                                    if power in last_phase['state']['centers']
                                    else 0 for power in ALL_POWERS]
 
+                if sum(final_score) <= 0:
+                    logging.warning(f'Skipping game {game_count} because final score is {sum(final_score)}')
+                    continue
+
                 value_labels = [score / sum(final_score) for score in final_score]
 
                 # remove powers if they end with less than 7 SCs
@@ -72,8 +88,6 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
 
                 last_phase_orders = []
                 for phase in obj['phases']:
-                    optimizer.zero_grad()
-
                     board_state = get_board_state(phase['state'])
                     prev_orders = phase_orders_to_rep(last_phase_orders)
                     powers = [power for power, orders in phase['orders'].items() if orders
@@ -118,15 +132,16 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                         running_value_loss += value_loss.item()
 
                         optimizer.step()
+                        optimizer.zero_grad()
 
                     # metrics
                     value_input_count += 1
 
                 if print_ratio != 0 and game_count % print_ratio == 0 and not validate:
-                    print(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
-                          f' value loss: {running_value_loss / value_input_count:.3f},'
-                          f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%,'
-                          f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%')
+                    logging.info(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
+                                 f' value loss: {running_value_loss / value_input_count:.3f},'
+                                 f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%,'
+                                 f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%')
                     running_dist_loss = 0.0
                     running_value_loss = 0.0
                     running_total_accuracy = 0.0
@@ -137,9 +152,9 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
                 if save_ratio != 0 and game_count % save_ratio == 0:
                     torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}.pth')
 
-        print(f"Validation set accuracy for epoch {epoch + 1}:\n"
-              f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%\n'
-              f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%\n')
+        logging.info(f"Validation set accuracy for epoch {epoch + 1}:\n"
+                     f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%\n'
+                     f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%\n')
 
         if save_ratio != 0:
             torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}_full.pth')
