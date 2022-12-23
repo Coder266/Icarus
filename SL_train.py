@@ -15,7 +15,8 @@ import sys
 # noinspection PyTypeChecker,PyUnresolvedReferences
 def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, output_header='sl_model_DipNet',
              log_file=None, dist_learning_rate=1e-4, value_learning_rate=1e-6, validation_size=200,
-             embed_size=224, transformer_layers=10, transformer_heads=8, lstm_size=200, lstm_layers=2):
+             embed_size=224, transformer_layers=10, transformer_heads=8, lstm_size=200, lstm_layers=2,
+             restore_game=None, restore_epoch=None):
 
     # Logging
     handlers = [logging.StreamHandler(stream=sys.stdout)]
@@ -45,7 +46,12 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
 
     num_games = sum(1 for _ in open(dataset_path))
 
-    for epoch in range(500):
+    if restore_epoch:
+        start_epoch = restore_epoch - 1
+    else:
+        start_epoch = 0
+
+    for epoch in range(start_epoch, 500):
         game_count = 0
         value_input_count = 0
         dist_input_count = 0
@@ -57,6 +63,8 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
         with jsonlines.open(dataset_path) as reader:
             for obj in reader:
                 game_count += 1
+                if epoch == start_epoch and restore_game and game_count <= restore_game:
+                    continue
 
                 validate = game_count > (num_games - validation_size)
 

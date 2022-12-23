@@ -12,7 +12,7 @@ def parse_args():
                         help='jsonlines file with games to learn from')
     parser.add_argument('-g', '--gpu', help='gpu id for cuda to use',
                         type=int, default=0)
-    parser.add_argument('-m', '--model_path', help='.pre-trained model to initialize model before training (.pth file)',
+    parser.add_argument('-m', '--model_path', help='pre-trained model to initialize model before training (.pth file)',
                         type=str, default=None)
     parser.add_argument('-p', '--print_ratio', help='how often to print loss and accuracy, 0 disables printing',
                         type=int, default=0)
@@ -40,6 +40,10 @@ def parse_args():
                         type=int, default=200)
     parser.add_argument('--lstm_layers', help='number of lstm layers, default is 2',
                         type=int, default=2)
+    parser.add_argument('--restore_game', help='restore checkpoint and start from this game',
+                        type=int, default=None)
+    parser.add_argument('--restore_epoch', help='restore checkpoint and start from this epoch',
+                        type=int, default=None)
     return parser.parse_args()
 
 
@@ -54,4 +58,5 @@ if __name__ == "__main__":
              output_header=args.output_header, log_file=args.log_file,
              dist_learning_rate=args.dist_lr, value_learning_rate=args.value_lr, validation_size=args.validation_size,
              embed_size=args.embed_size, transformer_layers=args.transformer_layers,
-             transformer_heads=args.transformer_heads, lstm_size=args.lstm_size, lstm_layers=args.lstm_layers)
+             transformer_heads=args.transformer_heads, lstm_size=args.lstm_size, lstm_layers=args.lstm_layers,
+             restore_game=args.restore_game, restore_epoch=args.restore_epoch)
