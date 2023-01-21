@@ -8,7 +8,7 @@ from tornado import gen
 from environment.action_list import ACTION_LIST
 from environment.constants import LOCATIONS, ALL_POWERS
 from environment.message_list import MESSAGE_LIST, ANSWER_LIST
-from environment.message_utils import ix_to_msg
+from environment.message_utils import ix_to_msg, filter_messages
 from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders
 from environment.order_utils import ORDER_SIZE, loc_to_ix, ix_to_order, select_orders
 
@@ -36,6 +36,9 @@ class MessagePlayer:
 
     @gen.coroutine
     def get_orders(self, game, power_name):
+        # TODO if not initialized, call
+        # game.add_on_game_message_received(notification_callback=reply_press())
+
         start_time = time.time()
 
         board_state = torch.Tensor(get_board_state(game.get_state())).to(device)
@@ -44,13 +47,15 @@ class MessagePlayer:
         self.send_press(game, power_name, board_state, prev_orders)
 
         while not time.time() - start_time >= self.press_time:
-            self.check_messages(game, power_name, board_state, prev_orders)
+            # TODO wait
+            # self.check_messages(game, power_name, board_state, prev_orders)
+            pass
 
         orderable_locs = game.get_orderable_locations()
 
         dist, _ = self.brain(board_state, prev_orders, self.msg_log, [power_name], orderable_locs)
 
-        actions = select_orders(dist[power_name], power_name, game, orderable_locs)
+        actions = select_orders(dist[power_name], game, power_name, orderable_locs)
 
         return [ix_to_order(ix) for ix in actions]
 
@@ -59,25 +64,24 @@ class MessagePlayer:
 
         for msg in msgs:
             self.send_message(msg)
-
-    def check_messages(self, game, power_name, board_state, prev_orders):
-        # todo logic to check for incoming messages
-        incoming_messages = []
-
-        for msg in incoming_messages:
             self.add_message(msg)
-            self.reply_press(game, power_name, board_state, prev_orders, msg)
 
     def reply_press(self, game, power_name, board_state, prev_orders, last_message):
+        # TODO change parameters to match callback signature
+        self.add_message(last_message)
         msg = self.brain.forward_answer(board_state, prev_orders, self.msg_log, game, power_name, last_message)
         self.send_message(msg)
 
     def add_message(self, msg):
+        # TODO message to embedding
         self.msg_log = torch.cat((self.msg_log[1:], torch.Tensor([msg])))
 
-    def send_message(self, msg):
+    def send_message(self, game, msg):
         self.add_message(msg)
-        # todo logic to send messages, check target etc
+        # TODO determine target, translate message to daide
+        target = "GERMANY"
+        msg_object = game.new_power_message(target, msg)
+        await game.send_game_message(message=msg_object)
         pass
 
 
@@ -147,6 +151,7 @@ class Brain(nn.Module):
         msg_state_embed = F.relu(self.msgEmbedLinear(torch.flatten(msg_log)))
         x = torch.cat([torch.flatten(x), msg_state_embed])
         x = F.sigmoid(self.msgOutputLinear(x))
+        x = filter_messages(x, game, power_name)
         x = x.ge(0.5).nonzero()
 
         return [ix_to_msg(msg, game, power_name) for msg in x]
