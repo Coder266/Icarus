@@ -1,9 +1,9 @@
 import numpy as np
-from diplomacy import Game
 
+from diplomacy import Game
 from environment.action_list import ACTION_LIST
 from environment.constants import *
-import environment.order_utils as order_utils
+from environment import order_utils
 
 LOC_VECTOR_LENGTH = 35
 
@@ -18,7 +18,15 @@ CENTER_OWNER_INDEX = 27
 CENTER_INDEX = 34
 
 
-def get_season_code(state_name: str) -> int:
+def get_season_code(state: dict) -> int:
+    """
+    Returns the season code for a given state name
+
+    :param state_name: name of the state
+    :return: season code
+    :raises: ValueError if the state name is not recognized
+    """
+    state_name = state['name']
     if state_name[0] == 'S' and state_name[-1] == 'M':
         return SPRING_MOVES
     elif state_name[0] == 'S' and state_name[-1] == 'R':
@@ -35,11 +43,29 @@ def get_season_code(state_name: str) -> int:
         raise ValueError(f"Unknown season in state {state_name}")
 
 
-def get_owner_by_loc(state):
+def get_loc_types():
+    """
+    Returns a dictionary with keys as location and values as the type of location (land, sea, coast)
+    :return: dictionary with location and its corresponding type
+    """
+    return {key.upper(): item for key, item in Game().map.loc_type.items()}
+
+
+def get_owner_by_loc(state: object):
+    """
+    Given a state, returns a dictionary with keys as location and values as the power that controls that location
+    :param state: current state of the game
+    :return: dictionary with location and its corresponding power
+    """
     return {loc: power for power in state["influence"] for loc in state["influence"][power]}
 
 
-def get_unit_type_by_loc(state):
+def get_unit_type_by_loc(state: dict):
+    """
+    Given a state, returns a dictionary with keys as location and values as the unit type present in that location
+    :param state: current state of the game
+    :return: dictionary with location and its corresponding unit type
+    """
     units = sum(state["units"].values(), [])
     units = [unit.split(' ') for unit in units]
     units = {unit[1]: unit[0] for unit in units}
@@ -47,8 +73,14 @@ def get_unit_type_by_loc(state):
     return units
 
 
-def get_unit_type_in_loc(loc: str, game: Game) -> str:
-    units = get_unit_type_by_loc(game.get_state())
+def get_unit_type_in_loc(loc: str, state: dict) -> str:
+    """
+    Given a location and a state, returns the unit type present in that location
+    :param loc: location for which unit type is to be returned
+    :param state: current state of the game
+    :return: unit type present in the location
+    """
+    units = get_unit_type_by_loc(state)
 
     if loc in units:
         unit_type = units[loc]
@@ -60,27 +92,52 @@ def get_unit_type_in_loc(loc: str, game: Game) -> str:
 
 
 def get_centers_by_loc(state):
+    """
+    Given a state, returns a dictionary with keys as supply center locations
+    and values as the power that controls supply center
+    :param state: current state of the game
+    :return: dictionary with location and its corresponding power
+    """
     return {center: power for power in state["centers"] for center in state["centers"][power]}
 
 
 def get_dislodged_units_by_loc(state):
+    """
+    Given a state, returns a dictionary with keys as location and values as the unit type dislodged from that location
+    :param state: current state of the game
+    :return: dictionary with location and its corresponding unit type
+    """
     return {retreats.split()[1]: retreats.split()[0]
             for power in state["retreats"]
             for retreats in state["retreats"][power]}
 
 
 def get_dislodged_units_power_by_loc(state):
+    """
+    Given a state, returns a dictionary with keys as location
+    and values as the power that the dislodged unit on that location belongs to
+    :param state: current state of the game
+    :return: dictionary with location and its corresponding power
+    """
     return {retreats.split()[1]: power for power in state["retreats"] for retreats in state["retreats"][power]}
 
 
-def get_loc_types():
-    return {key.upper(): item for key, item in Game().map.loc_type.items()}
-
-
 def get_board_state(state):
-    # board
-    # Array num_areas x loc_vector_length
+    """
+    Given the state of a game, this function returns an array representing the state of the board.
+    The array has dimensions (num_locs, loc_vector_length) and contains information about the unit type,
+    power influence, buildable status, removable status, dislodged units, location type, and
+    whether it is a supply center for each location on the board.
+    Each location vector is composed of zeros
+
+    :param state: current state of the game.
+    :return: an array of shape (num_locs, loc_vector_length) containing information about the state of the board.
+    """
+
+    # Initialize empty board state
     board_state = []
+
+    # Get information about the unit types, power influence, dislodged units, supply centers, and location types
     unit_type = get_unit_type_by_loc(state)
     owner = get_owner_by_loc(state)
     dislodged_powers = get_dislodged_units_power_by_loc(state)
@@ -88,70 +145,70 @@ def get_board_state(state):
     centers = get_centers_by_loc(state)
     loc_types = get_loc_types()
 
+    # Iterate over each location on the board
     for loc in LOCATIONS:
-        # UNIT_TYPE (3 flags) (army, fleet, none) | POWER (8 flags) (power + none) | BUILDABLE (1 flag) |
-        # REMOVABLE (1 flag) | DISLODGED (3 flags) (army, fleet, none) | OWNER OF DISLODGED (8 flags) (power + none) |
-        # LOC TYPE (3 flags) (land, sea, coast) | OWNER OF SUPPLY CENTER (8 flags) (power + none)
-
-        # loc_vector
+        # Initialize empty location vector
         loc_vector = np.zeros(LOC_VECTOR_LENGTH)
 
-        # unit type
+        # Unit type
         if loc in unit_type:
-            loc_vector[UNIT_TYPE_INDEX] = unit_type[loc] == 'A'
-            loc_vector[UNIT_TYPE_INDEX + 1] = unit_type[loc] == 'F'
+            if unit_type[loc] == 'A':
+                loc_vector[UNIT_TYPE_INDEX] = 1
+            elif unit_type[loc] == 'F':
+                loc_vector[UNIT_TYPE_INDEX + 1] = 1
         else:
-            loc_vector[UNIT_TYPE_INDEX + 2] = True
+            loc_vector[UNIT_TYPE_INDEX + 2] = 1
 
-        # power
+        # Power
         if loc in owner:
-            loc_vector[POWER_INDEX + ALL_POWERS.index(owner[loc])] = True
+            loc_vector[POWER_INDEX + ALL_POWERS.index(owner[loc])] = 1
         else:
-            loc_vector[POWER_INDEX + 7] = True
+            loc_vector[POWER_INDEX + 7] = 1
 
-        # buildable
+        # Buildable
         if loc in owner:
-            loc_vector[BUILDABLE_INDEX] = loc in state["builds"][owner[loc]]["homes"]
+            loc_vector[BUILDABLE_INDEX] = int(loc in state["builds"][owner[loc]]["homes"])
 
-        # removable
+        # Removable
         if loc in owner:
             loc_vector[REMOVABLE_INDEX] = any(loc in unit for unit in state["units"][owner[loc]])
 
-        # dislodged
+        # Dislodged
         if loc in dislodged_units:
-            # dislodged[loc]
-            loc_vector[DISLODGED_UNIT_INDEX] = dislodged_units[loc] == 'A'
-            loc_vector[DISLODGED_UNIT_INDEX + 1] = dislodged_units[loc] == 'F'
-
-            loc_vector[DISLODGED_POWER_INDEX + ALL_POWERS.index(dislodged_powers[loc])] = True
+            if dislodged_units[loc] == 'A':
+                loc_vector[DISLODGED_UNIT_INDEX] = 1
+            elif dislodged_units[loc] == 'F':
+                loc_vector[DISLODGED_UNIT_INDEX + 1] = 1
+            loc_vector[DISLODGED_POWER_INDEX + ALL_POWERS.index(dislodged_powers[loc])] = 1
         else:
-            loc_vector[DISLODGED_UNIT_INDEX + 2] = True
-            loc_vector[DISLODGED_POWER_INDEX + 7] = True
+            loc_vector[DISLODGED_UNIT_INDEX + 2] = 1
+            loc_vector[DISLODGED_POWER_INDEX + 7] = 1
 
-        # loc type
-        loc_vector[LAND_TYPE_INDEX + LAND_TYPES.index(loc_types[loc])] = True
+            # Location type
+            loc_vector[LAND_TYPE_INDEX + LAND_TYPES.index(loc_types[loc])] = 1
 
-        # centers
-        if loc in centers:
-            loc_vector[CENTER_OWNER_INDEX + ALL_POWERS.index(centers[loc])] = True
-        else:
-            loc_vector[CENTER_OWNER_INDEX + 7] = True
+            # Center owner
+            if loc in centers:
+                loc_vector[CENTER_OWNER_INDEX + ALL_POWERS.index(centers[loc])] = 1
+            else:
+                loc_vector[CENTER_OWNER_INDEX + 7] = 1
 
-        board_state += [loc_vector]
+            # Append location vector to board state
+            board_state.append(loc_vector)
 
-    return np.array(board_state)
-
-
-def get_score_from_board_state(board_state):
-    score = {power: 0 for power in ALL_POWERS}
-    for loc in board_state:
-        center_owners = loc[-8:-1]
-        if any(center_owners):
-            score[ALL_POWERS[np.where(center_owners == 1)[0][0]]] += 1
-    return score
+        # Return board state as numpy array
+        return np.array(board_state)
 
 
 def get_last_phase_orders(game: Game):
+    """
+    Given a game object, this function returns an array representing the orders of the last phase.
+    The array has dimensions (num_locs, order_size)
+    and contains information about the order issued on each location on the board.
+
+    :param game: game object
+    :return: an array of shape (num_locs, order_size) containing information about the orders of the last phase.
+    """
     phase_history = Game.get_phase_history(game, from_phase=-1)
     if phase_history:
         return phase_orders_to_rep(phase_history[0].orders)
@@ -160,15 +217,21 @@ def get_last_phase_orders(game: Game):
 
 
 def phase_orders_to_rep(phase_orders):
-    phase_orders_rep = np.zeros((len(LOCATIONS), order_utils.ORDER_SIZE))
+    """
+    Given the list of orders of a phase, this function returns an array representing the orders.
+    The array has dimensions (num_locs, order_size) and contains information
+    about the order type, unit type, and target location for each location on the board.
 
+    :param phase_orders: a list of strings representing the orders of a phase.
+    :return: an array of shape (num_locs, order_size) containing information about the orders of the phase.
+    """
     if not phase_orders:
-        return phase_orders_rep
+        return np.zeros((len(LOCATIONS), order_utils.ORDER_SIZE))
 
     phase_orders = sum(phase_orders.values(), [])
-    order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in phase_orders if order != 'WAIVE' and order in ACTION_LIST}
-    for i, loc in enumerate(LOCATIONS):
-        if loc in order_by_loc:
-            phase_orders_rep[i] = order_by_loc[loc]
+    order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in phase_orders
+                    if order != 'WAIVE' and order in ACTION_LIST}
+
+    phase_orders_rep = [order_by_loc[loc] if loc in order_by_loc else 0 for i, loc in enumerate(LOCATIONS)]
 
     return phase_orders_rep
