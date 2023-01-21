@@ -34,7 +34,7 @@ class Player:
         orderable_locs = game.get_orderable_locations()
         dist, _ = self.brain(board_state, prev_orders, [power_name], orderable_locs)
 
-        actions = select_orders(dist[power_name], power_name, game, orderable_locs)
+        actions = select_orders(dist[power_name], game, power_name, orderable_locs)
 
         return [ix_to_order(ix) for ix in actions]
 
@@ -56,8 +56,6 @@ class Brain(nn.Module):
         # LSTM Decoder: encoded state (embed_size) > action probabilities (len(ACTION_LIST))
         self.hidden = self.init_hidden()
         self.lstm = nn.LSTM(embed_size, lstm_size, num_layers=lstm_layers)
-        # TODO add previous order masked softmax
-        # self.lstm = nn.LSTM(embed_size + order_emb_size, lstm_size, num_layers=lstm_layers)
         self.linearPolicy = nn.Linear(lstm_size, len(ACTION_LIST))
 
         # Value Network
@@ -69,7 +67,6 @@ class Brain(nn.Module):
                 torch.zeros(self.lstm_layers, 1, self.lstm_size).to(device))
 
     def forward(self, x_bo, x_po, powers, locs_by_power):
-        # TODO get previous orders as indexes and train an embedding
         x = self.encoder(x_bo, x_po)
 
         # policy
@@ -81,7 +78,6 @@ class Brain(nn.Module):
                 self.hidden = self.init_hidden()
                 locs_ix = [loc_to_ix(loc) for loc in locs_by_power[power]]
                 locs_emb = x[locs_ix]
-                # TODO insert masked softmax previous loc_emb
                 x_pol, self.hidden = self.lstm(locs_emb, self.hidden)
                 x_pol = self.linearPolicy(x_pol)
                 dist[power] = torch.reshape(x_pol, (len(locs_ix), -1))

@@ -176,7 +176,7 @@ def calculate_accuracy(state, powers, dist, orders, orderable_locs):
     power_accuracy = {}
     for power in powers:
         if orders[power]:
-            power_outputs = get_max_orders(dist[power], power, game, orderable_locs)
+            power_outputs = get_max_orders(dist[power], game, power, orderable_locs)
 
             # orders to labels
             power_labels = [order_to_ix(order) for order in orders[power]]

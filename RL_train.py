@@ -87,7 +87,7 @@ def train_rl(num_episodes, learning_rate=0.001, model_path=None, gamma=0.99):
                 power_dist = F.softmax(dist[power], dim=1)
 
                 if len(power_dist) > 0:
-                    actions = select_orders(dist[power], power, game, orderable_locs)
+                    actions = select_orders(dist[power], game, power, orderable_locs)
 
                     power_dist = Categorical(power_dist)
                     episode_log_probs[power].append(power_dist.log_prob(actions))
