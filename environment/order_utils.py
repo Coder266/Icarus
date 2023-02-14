@@ -184,6 +184,14 @@ def loc_to_daide_format(loc):
         return loc
 
 
+def daide_format_to_loc(daide_loc):
+    daide_loc = daide_loc.replace('(', '').replace(')', '')
+    if 'CS' in daide_loc:
+        return f"{daide_loc[:3]}/{daide_loc[4]}C"
+    else:
+        return daide_loc
+
+
 def order_to_daide_format(order, game, power_name):
     """
     Given an order, the current state of the game and the name of the power that issued the order,
@@ -198,7 +206,7 @@ def order_to_daide_format(order, game, power_name):
     if tokens[0] in UNIT_TYPES:
         unit_owner = get_unit_owner(game, ' '.join(tokens[:2]))
 
-        unit_string = f"{unit_owner} {DAIDE_UNIT_TYPES[tokens[0]]} {loc_to_daide_format(tokens[1])}"
+        unit_string = f"{unit_owner} {UNIT_TYPES_TO_DAIDE[tokens[0]]} {loc_to_daide_format(tokens[1])}"
 
         order_type = get_order_type(tokens)
 
@@ -218,7 +226,7 @@ def order_to_daide_format(order, game, power_name):
             return f"( {unit_string} ) REM"
         elif order_type in [SUPPORT_HOLD, SUPPORT_MOVE, CONVOY]:
             unit_owner2 = get_unit_owner(game, ' '.join(tokens[3:5]))
-            unit_string2 = f"{unit_owner2} {DAIDE_UNIT_TYPES[tokens[3]]} {loc_to_daide_format(tokens[4])}"
+            unit_string2 = f"{unit_owner2} {UNIT_TYPES_TO_DAIDE[tokens[3]]} {loc_to_daide_format(tokens[4])}"
 
             if order_type == SUPPORT_HOLD:
                 return f"( {unit_string} ) SUP ( {unit_string2} )"
@@ -227,9 +235,42 @@ def order_to_daide_format(order, game, power_name):
             elif order_type == CONVOY:
                 return f"( {unit_string} ) CVY ( {unit_string2} ) CTO {loc_to_daide_format(tokens[6])}"
     elif tokens[0] == 'WAIVE':
-        return f"{POWER_ACRONYMS[power_name]} WVE"
+        return f"{POWERS_TO_ACRONYMS[power_name]} WVE"
     else:
         raise ValueError(f"Unknown order {order}")
+
+
+def daide_order_to_order_format(daide_order):
+    if 'WVE' in daide_order:
+        return 'WAIVE'
+
+    tokens = daide_order.replace('(', ' ').replace(')', ' ').split()
+
+    unit_string = f"{DAIDE_TO_UNIT_TYPES[tokens[1]]} {daide_format_to_loc(tokens[2])}"
+
+    if tokens[3] == 'HLD':
+        return f"{unit_string} H"
+    elif tokens[3] == 'MTO':
+        return f"{unit_string} - {daide_format_to_loc(tokens[4])}"
+    elif tokens[3] == 'CTO':
+        return f"{unit_string} - {daide_format_to_loc(tokens[4])} VIA"
+    elif tokens[3] == 'RTO':
+        return f"{unit_string} RTO {daide_format_to_loc(tokens[4])}"
+    elif tokens[3] == 'DSB':
+        return f"{unit_string} D"
+    elif tokens[3] in [BUILD_ARMY, BUILD_FLEET]:
+        return f"{unit_string} B"
+    elif tokens[3] in ['SUP', 'CVY']:
+        unit_string2 = f"{DAIDE_TO_UNIT_TYPES[tokens[5]]} {daide_format_to_loc(tokens[6])}"
+
+        if tokens[3] == 'SUP' and len(tokens) < 9:
+            return f"{unit_string} S {unit_string2}"
+        elif tokens[3] == 'SUP':
+            return f"{unit_string} S {unit_string2} - {daide_format_to_loc(tokens[8])}"
+        elif tokens[3] == 'CVY':
+            return f"{unit_string} C {unit_string2} - {daide_format_to_loc(tokens[8])}"
+    else:
+        raise ValueError(f"Unknown order {daide_order}")
 
 
 def get_unit_owner(game, unit):
@@ -243,7 +284,7 @@ def get_unit_owner(game, unit):
     unit_owner_dict = {unit: power for power, units in game.get_state()['units'].items() for unit in units}
 
     try:
-        unit_owner = POWER_ACRONYMS[unit_owner_dict[unit]]
+        unit_owner = POWERS_TO_ACRONYMS[unit_owner_dict[unit]]
     except KeyError:
         raise ValueError(f"No unit {' '.join(unit)}")
 

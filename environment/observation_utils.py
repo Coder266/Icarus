@@ -193,11 +193,11 @@ def get_board_state(state):
             else:
                 loc_vector[CENTER_OWNER_INDEX + 7] = 1
 
-            # Append location vector to board state
-            board_state.append(loc_vector)
+        # Append location vector to board state
+        board_state.append(loc_vector)
 
         # Return board state as numpy array
-        return np.array(board_state)
+    return np.array(board_state)
 
 
 def get_last_phase_orders(game: Game):
@@ -232,6 +232,6 @@ def phase_orders_to_rep(phase_orders):
     order_by_loc = {order.split()[1]: order_utils.order_to_rep(order) for order in phase_orders
                     if order != 'WAIVE' and order in ACTION_LIST}
 
-    phase_orders_rep = [order_by_loc[loc] if loc in order_by_loc else 0 for i, loc in enumerate(LOCATIONS)]
+    phase_orders_rep = [order_by_loc[loc] if loc in order_by_loc else np.zeros(order_utils.ORDER_SIZE) for i, loc in enumerate(LOCATIONS)]
 
-    return phase_orders_rep
+    return np.array(phase_orders_rep)

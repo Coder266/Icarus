@@ -1,5 +1,5 @@
 ALL_POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
-POWER_ACRONYMS = {
+POWERS_TO_ACRONYMS = {
     'AUSTRIA': 'AUS',
     'ENGLAND': 'ENG',
     'FRANCE': 'FRA',
@@ -8,6 +8,17 @@ POWER_ACRONYMS = {
     'RUSSIA': 'RUS',
     'TURKEY': 'TUR'
 }
+
+ACRONYMS_TO_POWERS = {
+    'AUS': 'AUSTRIA',
+    'ENG': 'ENGLAND',
+    'FRA': 'FRANCE',
+    'GER': 'GERMANY',
+    'ITA': 'ITALY',
+    'RUS': 'RUSSIA',
+    'TUR': 'TURKEY'
+}
+
 POWER_ACRONYMS_LIST = ['AUS', 'ENG', 'FRA', 'GER', 'ITA', 'RUS', 'TUR']
 
 LOCATIONS = ['YOR', 'EDI', 'LON', 'LVP', 'NTH', 'WAL', 'CLY',
@@ -24,9 +35,13 @@ LOCATIONS = ['YOR', 'EDI', 'LON', 'LVP', 'NTH', 'WAL', 'CLY',
              'BUL', 'BUL/EC', 'CON', 'BUL/SC']
 
 UNIT_TYPES = ['A', 'F']
-DAIDE_UNIT_TYPES = {
+UNIT_TYPES_TO_DAIDE = {
     'A': 'AMY',
     'F': 'FLT'
+}
+DAIDE_TO_UNIT_TYPES = {
+    'AMY': 'A',
+    'FLT': 'F'
 }
 
 LAND_TYPES = ["LAND", "WATER", "COAST"]

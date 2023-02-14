@@ -1,6 +1,7 @@
 import itertools
 from environment import action_list, constants
 
+
 def generate_permutations(powers):
     """
     Generates permutations of powers
@@ -24,7 +25,7 @@ def generate_messages(press_level):
         messages += [
             *[["PCE", perm] for perm in powers_permutations],
             *[["ALY", perm1, perm2] for perm1, perm2 in
-              itertools.product(powers_permutations, powers_permutations + + [(power,) for power in constants.ALL_POWERS])
+              itertools.product(powers_permutations, powers_permutations + [(power,) for power in constants.ALL_POWERS])
               if set(perm1).isdisjoint(set(perm2))],
         ]
 
