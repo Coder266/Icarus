@@ -34,6 +34,14 @@ LOCATIONS = ['YOR', 'EDI', 'LON', 'LVP', 'NTH', 'WAL', 'CLY',
              'EAS', 'GRE', 'BUD', 'SER', 'ANK', 'SMY', 'SYR',
              'BUL', 'BUL/EC', 'CON', 'BUL/SC']
 
+DAIDE_LOCATIONS = ['YOR', 'EDI', 'LON', 'LVP', 'NTH', 'WAL', 'CLY', 'NWG', 'ECH', 'IRI', 'NAO', 'BEL', 'DEN', 'HEL',
+                   'HOL', 'NWY', 'SKA', 'BAR', 'BRE', 'MAO', 'PIC', 'BUR', 'RUH', 'BAL', 'KIE', 'SWE', 'FIN', 'STP',
+                   '(STP NCS)', 'GAS', 'PAR', 'NAF', 'POR', 'SPA', '(SPA NCS)', '(SPA SCS)', 'WES', 'MAR', 'MUN', 'BER',
+                   'GOB', 'LVN', 'PRU', '(STP SCS)', 'MOS', 'TUN', 'GOL', 'TYS', 'PIE', 'BOH', 'SIL', 'TYR', 'WAR',
+                   'SEV', 'UKR', 'ION', 'TUS', 'NAP', 'ROM', 'VEN', 'GAL', 'VIE', 'TRI', 'ARM', 'BLA', 'RUM', 'ADR',
+                   'AEG', 'ALB', 'APU', 'EAS', 'GRE', 'BUD', 'SER', 'ANK', 'SMY', 'SYR', 'BUL', '(BUL ECS)', 'CON',
+                   '(BUL SCS)']
+
 UNIT_TYPES = ['A', 'F']
 UNIT_TYPES_TO_DAIDE = {
     'A': 'AMY',

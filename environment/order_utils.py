@@ -180,6 +180,12 @@ def loc_to_daide_format(loc):
     """
     if '/' in loc:
         return f"({loc.split('/')[0]} {loc[4]}CS)"
+    elif loc == 'ENG':
+        return 'ECH'
+    elif loc == 'LYO':
+        return 'GOL'
+    elif loc == 'BOT':
+        return 'GOB'
     else:
         return loc
 
@@ -188,6 +194,12 @@ def daide_format_to_loc(daide_loc):
     daide_loc = daide_loc.replace('(', '').replace(')', '')
     if 'CS' in daide_loc:
         return f"{daide_loc[:3]}/{daide_loc[4]}C"
+    elif daide_loc == 'ECH':
+        return 'ENG'
+    elif daide_loc == 'GOL':
+        return 'LYO'
+    elif daide_loc == 'GOB':
+        return 'BOT'
     else:
         return daide_loc
 

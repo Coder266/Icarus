@@ -3,7 +3,7 @@ import torch
 from diplomacy import Game
 from torch import optim as optim, nn as nn
 
-from Player import Player, device
+from players.Player import Player, device
 from environment.constants import POWER_ACRONYMS_LIST, ALL_POWERS
 from environment.observation_utils import get_board_state, phase_orders_to_rep
 from environment.order_utils import order_to_ix, get_max_orders
@@ -12,7 +12,6 @@ import logging
 import sys
 
 
-# noinspection PyTypeChecker,PyUnresolvedReferences
 def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, output_header='sl_model_DipNet',
              log_file=None, dist_learning_rate=1e-4, value_learning_rate=1e-6, validation_size=200,
              embed_size=224, transformer_layers=10, transformer_heads=8, lstm_size=200, lstm_layers=2,
@@ -73,9 +72,10 @@ def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, outp
 
                 # calculate final score for use in value learning
                 note = obj['phases'][-1]['state']['note'].split(': ')
+                note[1] = note[1].split(', ')
 
                 if note[0] == 'Victory by':
-                    final_score = [int(note[1] == power) * 34 for power in POWER_ACRONYMS_LIST]
+                    final_score = [int(power in note[1]) * (34 / len(note[1])) for power in POWER_ACRONYMS_LIST]
                 else:
                     last_phase = obj['phases'][-1]
                     # final_score should be

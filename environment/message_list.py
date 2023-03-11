@@ -2,14 +2,19 @@ import itertools
 from environment import action_list, constants
 
 
-def generate_permutations(powers):
+def generate_power_combinations(powers):
     """
-    Generates permutations of powers
+    Generates combinations of powers
 
     :param powers: list of powers
-    :return: list of permutations of powers
+    :return: list of combinations of powers
     """
     return sum([list(itertools.combinations(powers, i + 1)) for i in range(1, len(powers) - 1)], [])
+
+
+def generate_loc_combinations():
+    locs = [loc for loc in constants.LOCATIONS if '/' not in loc]
+    return list(itertools.combinations(locs, 2)) + locs
 
 
 def generate_messages(press_level):
@@ -20,19 +25,23 @@ def generate_messages(press_level):
     :return: list of messages
     """
     messages = []
-    powers_permutations = generate_permutations(constants.ALL_POWERS)
+    power_combinations = generate_power_combinations(constants.ALL_POWERS)
     if press_level >= 1:
         messages += [
-            *[["PCE", perm] for perm in powers_permutations],
+            *[["PCE", perm] for perm in power_combinations],
             *[["ALY", perm1, perm2] for perm1, perm2 in
-              itertools.product(powers_permutations, powers_permutations + [(power,) for power in constants.ALL_POWERS])
+              itertools.product(power_combinations, power_combinations + [(power,) for power in constants.ALL_POWERS])
               if set(perm1).isdisjoint(set(perm2))],
         ]
 
     if press_level >= 2:
         messages += [
             *[["XDO", order] for order in action_list.ACTION_LIST[1:]],
-            *[["DMZ", loc] for loc in constants.LOCATIONS if '/' not in loc]
+            *[["DMZ", loc, power] for loc, power in
+              itertools.product(constants.LOCATIONS,
+                                [(power,) for power in constants.ALL_POWERS] +
+                                list(itertools.combinations(constants.ALL_POWERS, 2)))
+              if '/' not in loc]
         ]
     return messages
 

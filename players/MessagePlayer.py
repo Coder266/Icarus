@@ -21,18 +21,26 @@ torch.autograd.set_detect_anomaly(True)
 
 
 class MessagePlayer:
-    def __init__(self, model_path=None, embed_size=224, msg_embed_size=100, transformer_layers=10, transformer_heads=8,
-                 lstm_size=200, lstm_layers=2, press_time=10, msg_log_size=20, gamma=0.99):
+    def __init__(self, model_path=None, gunboat_model_path=None, embed_size=224, msg_embed_size=100,
+                 transformer_layers=10, transformer_heads=8, lstm_size=200, lstm_layers=2, press_time=30,
+                 msg_log_size=20):
         self.press_time = press_time
-        self.msg_log = torch.zeros([msg_log_size, msg_embed_size]).to(device)
+        self.msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in ALL_POWERS}
 
         self.brain = Brain(embed_size=embed_size, msg_embed_size=msg_embed_size, transformer_layers=transformer_layers,
                            transformer_heads=transformer_heads, lstm_size=lstm_size, lstm_layers=lstm_layers,
-                           msg_log_size=msg_log_size, gamma=gamma)
+                           msg_log_size=msg_log_size)
 
         if model_path:
             self.brain.load_state_dict(torch.load(model_path))
             self.brain.eval()
+        elif gunboat_model_path:
+            gunboat_model = torch.load(gunboat_model_path)
+
+            layers = ['linear1', 'linear2', 'encoder']
+            layer_keys = [key for key in gunboat_model.keys() if key.split('.')[0] in layers]
+            for key in layer_keys:
+                self.brain.state_dict()[key].copy_(gunboat_model[key])
 
         self.brain.to(device)
 
@@ -53,17 +61,20 @@ class MessagePlayer:
 
         orderable_locs = game.get_orderable_locations()
 
-        dist, _ = self.brain(board_state, prev_orders, self.msg_log, [power_name], orderable_locs)
+        dist, _ = self.brain(board_state, prev_orders, self.msg_logs[power_name], [power_name], orderable_locs)
 
         actions = select_orders(dist[power_name], game, power_name, orderable_locs)
 
         return [ix_to_order(ix) for ix in actions]
 
     async def send_press(self, game, power_name, board_state, prev_orders):
-        msg_ixs = self.brain.forward_msgs(board_state, prev_orders, self.msg_log, game, power_name)
+        msg_dist = self.brain.forward_msgs(board_state, prev_orders, self.msg_logs[power_name])
+        msg_dist = torch.sigmoid(msg_dist)
+        msg_dist = filter_messages(msg_dist, power_name, game.get_units(power_name))
+        msg_ixs = msg_dist.ge(0.5).nonzero()
 
         for msg_ix in msg_ixs:
-            self.add_message(msg_ix)
+            self.add_message(msg_ix, power_name)
             await send_message(game, power_name, msg_ix)
 
     async def reply_press(self, game, msg_obj):
@@ -78,31 +89,34 @@ class MessagePlayer:
         if is_daide_msg_reply(received_message):
             msg_ix, answered_msg_ix = get_msg_ixs_from_daide_reply(received_message)
             if msg_ix:
-                self.add_message(msg_ix, last_message_ix=answered_msg_ix)
+                self.add_message(msg_ix, power_name, last_message_ix=answered_msg_ix)
         else:
             last_msg_ix = get_daide_msg_ix(received_message)
 
-            self.add_message(get_daide_msg_ix(received_message))
+            self.add_message(get_daide_msg_ix(received_message), power_name)
 
-            msg_ix = self.brain.forward_answer(board_state, prev_orders, self.msg_log)
+            msg_dist = self.brain.forward_answer(board_state, prev_orders, self.msg_logs[power_name])
+            msg_dist = F.softmax(msg_dist, dim=0)
+            msg_ix = torch.multinomial(msg_dist, 1)
+
             if msg_ix != 2:
-                self.add_message(msg_ix, last_msg_ix)
+                self.add_message(msg_ix, power_name, last_msg_ix)
                 await send_message(game, power_name, msg_ix, last_message=received_message, reply_power=reply_power)
+        await self.send_press(game, power_name, board_state, prev_orders)
 
-    def add_message(self, msg_ix, last_message_ix=None):
+    def add_message(self, msg_ix, power_name, last_message_ix=None):
         if last_message_ix:
             msg_ix = (msg_ix + 1) * len(MESSAGE_LIST) + last_message_ix
         msg_embed = self.brain.msg_embedding(torch.LongTensor([msg_ix]).to(device))
-        self.msg_log = torch.cat([self.msg_log[1:], msg_embed])
+        self.msg_logs[power_name] = torch.cat([self.msg_logs[power_name][1:], msg_embed])
 
 
 class Brain(nn.Module):
     def __init__(self, state_size=LOC_VECTOR_LENGTH + ORDER_SIZE, embed_size=224, msg_embed_size=100,
                  transformer_layers=10,
-                 transformer_heads=8, lstm_size=200, lstm_layers=2, msg_log_size=20, gamma=0.99):
+                 transformer_heads=8, lstm_size=200, lstm_layers=2, msg_log_size=20):
         super(Brain, self).__init__()
 
-        self.gamma = gamma
         self.embed_size = embed_size
         self.lstm_size = lstm_size
         self.lstm_layers = lstm_layers
@@ -119,7 +133,7 @@ class Brain(nn.Module):
         self.linearPolicy = nn.Linear(lstm_size, len(ACTION_LIST))
 
         # Value Network
-        self.linear1 = nn.Linear(len(LOCATIONS) * embed_size + embed_size, embed_size)
+        self.linear1 = nn.Linear(len(LOCATIONS) * embed_size, embed_size)
         self.linear2 = nn.Linear(embed_size, len(ALL_POWERS))
 
         # messages
@@ -131,10 +145,8 @@ class Brain(nn.Module):
         return (torch.zeros(self.lstm_layers, 1, self.lstm_size).to(device),
                 torch.zeros(self.lstm_layers, 1, self.lstm_size).to(device))
 
-    def forward(self, x_bo, x_po, msg_log, powers, locs_by_power):
+    def forward(self, x_bo, x_po, msg_logs, powers, locs_by_power):
         x = self.encoder(x_bo, x_po)
-
-        msg_state_embed = F.relu(self.msgEmbedLinear(torch.flatten(msg_log)))
 
         # policy
         dist = {}
@@ -142,6 +154,7 @@ class Brain(nn.Module):
             if not locs_by_power[power]:
                 dist[power] = torch.Tensor([]).to(device)
             else:
+                msg_state_embed = F.relu(self.msgEmbedLinear(torch.flatten(msg_logs[power])))
                 self.hidden = self.init_hidden()
                 locs_ix = [loc_to_ix(loc) for loc in locs_by_power[power]]
                 locs_emb = x[locs_ix]
@@ -151,20 +164,18 @@ class Brain(nn.Module):
                 dist[power] = torch.reshape(x_pol, (len(locs_ix), -1))
 
         # value
-        x_value = torch.cat([torch.flatten(x), msg_state_embed])
+        x_value = torch.flatten(x)
         x_value = F.relu(self.linear1(x_value))
         value = self.linear2(x_value)
 
         return dist, value
 
-    def forward_msgs(self, x_bo, x_po, msg_log, game, power_name):
+    def forward_msgs(self, x_bo, x_po, msg_log):
         # calculates the probability of sending each message and sends all above 0.5
         x = self.encoder(x_bo, x_po)
         msg_state_embed = F.relu(self.msgEmbedLinear(torch.flatten(msg_log)))
         x = torch.cat([torch.flatten(x), msg_state_embed])
-        x = torch.sigmoid(self.msgOutputLinear(x))
-        x = filter_messages(x, game, power_name)
-        x = x.ge(0.5).nonzero()
+        x = self.msgOutputLinear(x)
 
         return torch.flatten(x)
 
@@ -173,9 +184,9 @@ class Brain(nn.Module):
         x = self.encoder(x_bo, x_po)
         msg_state_embed = F.relu(self.msgEmbedLinear(torch.flatten(msg_log)))
         x = torch.cat([torch.flatten(x), msg_state_embed])
-        x = F.softmax(self.msgReplyLinear(x), dim=0)
+        x = self.msgReplyLinear(x)
 
-        return torch.multinomial(x, 1)
+        return x
 
 
 class Encoder(nn.Module):

@@ -2,9 +2,11 @@ import re
 
 import torch
 
-from environment.constants import POWERS_TO_ACRONYMS, ACRONYMS_TO_POWERS, ALL_POWERS
+from environment.constants import POWERS_TO_ACRONYMS, ACRONYMS_TO_POWERS, ALL_POWERS, POWER_ACRONYMS_LIST, LOCATIONS, \
+    DAIDE_LOCATIONS
 from environment.message_list import MESSAGE_LIST, ANSWER_LIST
-from environment.order_utils import order_to_daide_format, get_unit_owner, daide_order_to_order_format
+from environment.order_utils import order_to_daide_format, get_unit_owner, daide_order_to_order_format, \
+    daide_format_to_loc
 
 
 def msg_to_ix(msg):
@@ -47,7 +49,7 @@ def ix_to_daide_msg(msg_ix, game, power_name, last_message=None):
     elif msg[0] == "XDO":
         return f"PRP ( XDO ( {order_to_daide_format(msg[1], game, power_name)} ) )"
     elif msg[0] == "DMZ":
-        return f"PRP ( DMZ ( {msg[1]} ) )"
+        return f"PRP ( DMZ ( {' '.join([POWERS_TO_ACRONYMS[power] for power in msg[2]])} ) ( {msg[1]} ) )"
 
 
 def get_daide_msg_ix(daide_msg):
@@ -62,7 +64,18 @@ def get_daide_msg_ix(daide_msg):
     elif tokens[1] == "XDO":
         msg = ['XDO', daide_order_to_order_format(' '.join(tokens[2:]))]
     elif tokens[1] == "DMZ":
-        msg = ['DMZ', tokens[4]]
+        powers = []
+        loc = None
+        for token in tokens:
+            if token in POWER_ACRONYMS_LIST:
+                powers.append(ACRONYMS_TO_POWERS[token])
+            elif token in DAIDE_LOCATIONS:
+                loc = daide_format_to_loc(token)
+
+        if powers and loc:
+            msg = ['DMZ', loc, tuple(sorted(powers))]
+        else:
+            raise ValueError(f"Invalid DMZ message {daide_msg}")
     else:
         raise ValueError(f"Unknown daide message {daide_msg}")
 
@@ -95,22 +108,23 @@ def power_list_to_acronyms(power_list):
     return ' '.join([POWERS_TO_ACRONYMS[power] for power in power_list])
 
 
-def filter_messages(dist, game, power_name):
+def filter_messages(dist, power_name, units):
     """
     Filters the message probabilities according to the current game state and power name
 
     :param dist: probability distribution of sending each message
-    :param game: game object
     :param power_name: name of the power sending the message
+    :param units: units controlled by power
     :return: filtered probability distribution of messages
     """
     msg_mask = torch.ones(len(MESSAGE_LIST), dtype=torch.bool).to(dist.device)
-    units = game.get_units(power_name)
 
     for i, msg in enumerate(MESSAGE_LIST):
         if msg[0] in ['PCE', 'ALY'] and power_name in msg[1]:
             msg_mask[i] = True
         elif msg[0] == 'XDO' and ' '.join(msg[1].split()[:2]) in units:
+            msg_mask[i] = True
+        elif msg[0] == 'DMZ' and len(msg[2]) == 2 and power_name not in msg[2]:
             msg_mask[i] = True
 
     dist = dist.masked_fill(msg_mask, value=0)
@@ -118,11 +132,13 @@ def filter_messages(dist, game, power_name):
     return dist
 
 
-def get_message_targets(game, msg):
+def get_message_targets(game, power_name, msg):
     if msg[0] in ['PCE', 'ALY']:
         return [POWERS_TO_ACRONYMS[power] for power in msg[1]]
     elif msg[0] == 'XDO':
         return get_unit_owner(game, ' '.join(msg[1].split()[:2]))
+    elif msg[0] == 'DMZ':
+        return [POWERS_TO_ACRONYMS[power] for power in msg[2] if power != power_name]
     else:
         raise ValueError(f'Unable to determine target in message {msg}')
 
@@ -132,7 +148,7 @@ async def send_message(game, power_name, msg_ix, last_message=None, reply_power=
         targets = [reply_power]
     else:
         msg = ix_to_msg(msg_ix)
-        targets = get_message_targets(game, msg)
+        targets = get_message_targets(game, power_name, msg)
 
     daide_msg = ix_to_daide_msg(msg_ix, game, power_name, last_message)
     for target in targets:

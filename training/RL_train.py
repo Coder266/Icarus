@@ -8,7 +8,7 @@ from torch import optim as optim
 from torch.distributions import Categorical
 from torch.nn import functional as F
 
-from Player import Player, device
+from players.Player import Player, device
 from StatTracker import StatTracker
 from environment.constants import ALL_POWERS
 from environment.observation_utils import get_board_state, get_last_phase_orders

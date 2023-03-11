@@ -1,4 +1,4 @@
-from SL_train import train_sl
+from training.SL_train import train_sl
 import argparse
 import os
 
@@ -30,8 +30,8 @@ def parse_args():
     parser.add_argument('-e', '--embed_size',
                         help='size of the embedding for the board state and previous orders, default is 224',
                         type=int, default=224)
-    parser.add_argument('-t', '--transformer_layers', help='number of transformer layers, default is 10',
-                        type=int, default=10)
+    parser.add_argument('-t', '--transformer_layers', help='number of transformer layers, default is 5',
+                        type=int, default=5)
     parser.add_argument('--validation_size', help='number of games to keep in the validation set, default is 200',
                         type=int, default=200)
     parser.add_argument('--transformer_heads', help='number of transformer multi-attention heads, default is 8',

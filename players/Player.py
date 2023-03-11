@@ -16,10 +16,9 @@ torch.autograd.set_detect_anomaly(True)
 
 class Player:
     def __init__(self, model_path=None, embed_size=224, transformer_layers=10, transformer_heads=8, lstm_size=200,
-                 lstm_layers=2, gamma=0.99):
+                 lstm_layers=2):
         self.brain = Brain(embed_size=embed_size, transformer_layers=transformer_layers,
-                           transformer_heads=transformer_heads, lstm_size=lstm_size, lstm_layers=lstm_layers,
-                           gamma=gamma)
+                           transformer_heads=transformer_heads, lstm_size=lstm_size, lstm_layers=lstm_layers)
 
         if model_path:
             self.brain.load_state_dict(torch.load(model_path))
@@ -41,10 +40,9 @@ class Player:
 
 class Brain(nn.Module):
     def __init__(self, state_size=LOC_VECTOR_LENGTH + ORDER_SIZE, embed_size=224, transformer_layers=10,
-                 transformer_heads=8, lstm_size=200, lstm_layers=2, gamma=0.99):
+                 transformer_heads=8, lstm_size=200, lstm_layers=2):
         super(Brain, self).__init__()
 
-        self.gamma = gamma
         self.embed_size = embed_size
         self.lstm_size = lstm_size
         self.lstm_layers = lstm_layers
