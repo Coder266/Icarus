@@ -165,7 +165,7 @@ def split_Albert_DMZs(received_messages):
     for i, msg_obj in enumerate(received_messages):
         new_msg_texts = split_DMZ(msg_obj['message'])
         for msg_text in new_msg_texts:
-            new_msg_obj = msg_obj.deepcopy()
+            new_msg_obj = copy.deepcopy(msg_obj)
             new_msg_obj['message'] = msg_text
             split_messages.append(new_msg_obj)
     return split_messages
