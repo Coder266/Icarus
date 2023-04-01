@@ -15,7 +15,7 @@ torch.autograd.set_detect_anomaly(True)
 
 
 class Player:
-    def __init__(self, model_path=None, embed_size=224, transformer_layers=10, transformer_heads=8, lstm_size=200,
+    def __init__(self, model_path=None, embed_size=224, transformer_layers=5, transformer_heads=8, lstm_size=200,
                  lstm_layers=2):
         self.brain = Brain(embed_size=embed_size, transformer_layers=transformer_layers,
                            transformer_heads=transformer_heads, lstm_size=lstm_size, lstm_layers=lstm_layers)

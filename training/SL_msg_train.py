@@ -1,18 +1,14 @@
-import copy
-
 import jsonlines
 import torch
-from torch.nn import functional as F
 from diplomacy import Game
 from torch import optim as optim, nn as nn
 from torchmetrics.classification import BinaryF1Score
 
 from environment.message_list import MESSAGE_LIST, ANSWER_LIST
 from environment.message_utils import get_daide_msg_ix, filter_messages, is_daide_msg_reply, \
-    get_msg_ixs_from_daide_reply
+    get_msg_ixs_from_daide_reply, split_Albert_DMZs
 from players.MessagePlayer import MessagePlayer, device
-from environment.constants import POWER_ACRONYMS_LIST, ALL_POWERS, ACRONYMS_TO_POWERS, LOCATIONS, POWERS_TO_ACRONYMS, \
-    DAIDE_LOCATIONS
+from environment.constants import POWER_ACRONYMS_LIST, ALL_POWERS
 from environment.observation_utils import get_board_state, phase_orders_to_rep
 from environment.order_utils import order_to_ix, get_max_orders
 from environment.action_list import ACTION_LIST
@@ -21,7 +17,7 @@ import sys
 
 
 def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_ratio=0, save_ratio=1000,
-                 output_header='sl_model_DipNet',
+                 output_header='sl_',
                  log_file=None, dist_learning_rate=1e-4, validation_size=200,
                  embed_size=224, msg_embed_size=100, transformer_layers=5, transformer_heads=8, lstm_size=200,
                  lstm_layers=2, press_time=30, msg_log_size=20, restore_game=None, restore_epoch=None):
@@ -129,7 +125,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
 
                     for power in powers_to_learn:
                         sent_msg_log = []
-                        messages = split_DMZs(phase['messages'])
+                        messages = split_Albert_DMZs(phase['messages'])
                         messages = get_power_msgs(messages, power)
 
                         while messages:
@@ -229,6 +225,8 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                                  f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%,'
                                  f' message accuracy: {running_msg_score / msg_input_count * 100:.2f}%')
 
+                    # todo add msg loss
+
                     running_dist_loss = 0.0
                     running_total_accuracy = 0.0
                     running_power_accuracy = 0.0
@@ -244,32 +242,6 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
 
         if save_ratio != 0:
             torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}_full.pth')
-
-
-def split_DMZs(messages):
-    for i, message in enumerate(messages):
-        tokens = message['message'].replace('(', ' ').replace(')', ' ').split()
-        if 'DMZ' in tokens:
-            powers = []
-            locs = []
-            for token in tokens:
-                if token in POWER_ACRONYMS_LIST:
-                    powers.append(token)
-                elif token in DAIDE_LOCATIONS:
-                    locs.append(token)
-
-            if len(locs) >= 2:
-                messages.pop(i)
-                for loc in locs:
-                    new_message = copy.deepcopy(message)
-                    if tokens[1] == 'DMZ':
-                        new_message['message'] = \
-                            f"PRP ( DMZ ( {' '.join(powers)} ) ( {loc} ) )"
-                    elif tokens[2] == 'DMZ':
-                        new_message['message'] = \
-                            f"{tokens[0]} ( PRP ( DMZ ( {' '.join(powers)} ) ( {loc} ) ) )"
-                    messages.insert(i, new_message)
-    return messages
 
 
 def get_power_msgs(messages, power):

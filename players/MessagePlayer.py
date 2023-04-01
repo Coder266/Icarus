@@ -9,8 +9,9 @@ from torch.nn import functional as F
 from environment.action_list import ACTION_LIST
 from environment.constants import LOCATIONS, ALL_POWERS
 from environment.message_list import MESSAGE_LIST, ANSWER_LIST
-from environment.message_utils import filter_messages, get_daide_msg_ix, get_msg_ixs_from_daide_reply, is_daide_msg_reply, \
-    send_message
+from environment.message_utils import filter_messages, get_daide_msg_ix, get_msg_ixs_from_daide_reply, \
+    is_daide_msg_reply, \
+    send_message, split_DMZ
 from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders
 from environment.order_utils import ORDER_SIZE, loc_to_ix, ix_to_order, select_orders
 
@@ -81,27 +82,29 @@ class MessagePlayer:
         power_name = msg_obj.message.recipient
         board_state = torch.Tensor(get_board_state(game.get_state())).to(device)
         prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
-        received_message = msg_obj.message.message
+        message_text = msg_obj.message.message
         reply_power = msg_obj.message.sender
 
-        print(f'Received message {received_message}')
+        messages = split_DMZ(message_text)
 
-        if is_daide_msg_reply(received_message):
-            msg_ix, answered_msg_ix = get_msg_ixs_from_daide_reply(received_message)
-            if msg_ix:
-                self.add_message(msg_ix, power_name, last_message_ix=answered_msg_ix)
-        else:
-            last_msg_ix = get_daide_msg_ix(received_message)
+        for received_message in messages:
+            if is_daide_msg_reply(received_message):
+                msg_ix, answered_msg_ix = get_msg_ixs_from_daide_reply(received_message)
+                if msg_ix:
+                    self.add_message(msg_ix, power_name, last_message_ix=answered_msg_ix)
+            else:
+                last_msg_ix = get_daide_msg_ix(received_message)
 
-            self.add_message(get_daide_msg_ix(received_message), power_name)
+                self.add_message(get_daide_msg_ix(received_message), power_name)
 
-            msg_dist = self.brain.forward_answer(board_state, prev_orders, self.msg_logs[power_name])
-            msg_dist = F.softmax(msg_dist, dim=0)
-            msg_ix = torch.multinomial(msg_dist, 1)
+                msg_dist = self.brain.forward_answer(board_state, prev_orders, self.msg_logs[power_name])
+                msg_dist = F.softmax(msg_dist, dim=0)
+                msg_ix = torch.multinomial(msg_dist, 1)
 
-            if msg_ix != 2:
-                self.add_message(msg_ix, power_name, last_msg_ix)
-                await send_message(game, power_name, msg_ix, last_message=received_message, reply_power=reply_power)
+                if msg_ix != 2:
+                    self.add_message(msg_ix, power_name, last_msg_ix)
+                    await send_message(game, power_name, msg_ix, last_message=received_message, reply_power=reply_power)
+
         await self.send_press(game, power_name, board_state, prev_orders)
 
     def add_message(self, msg_ix, power_name, last_message_ix=None):

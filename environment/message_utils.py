@@ -1,3 +1,5 @@
+import copy
+
 import re
 
 import torch
@@ -156,3 +158,45 @@ async def send_message(game, power_name, msg_ix, last_message=None, reply_power=
         await game.send_game_message(message=msg_object)
 
         print(f'Sent message {daide_msg}')
+
+
+def split_Albert_DMZs(received_messages):
+    split_messages = []
+    for i, msg_obj in enumerate(received_messages):
+        new_msg_texts = split_DMZ(msg_obj['message'])
+        for msg_text in new_msg_texts:
+            new_msg_obj = msg_obj.deepcopy()
+            new_msg_obj['message'] = msg_text
+            split_messages.append(new_msg_obj)
+    return split_messages
+
+
+def split_DMZ(message):
+    messages = []
+    tokens = message.replace('(', ' ').replace(')', ' ').split()
+    if 'DMZ' in tokens:
+        powers = []
+        locs = []
+        for token in tokens:
+            if token in POWER_ACRONYMS_LIST:
+                powers.append(token)
+            elif token in DAIDE_LOCATIONS:
+                locs.append(token)
+
+        if len(locs) >= 2:
+            for loc in locs:
+                if tokens[1] == 'DMZ':
+                    new_message = \
+                        f"PRP ( DMZ ( {' '.join(powers)} ) ( {loc} ) )"
+                elif tokens[2] == 'DMZ':
+                    new_message = \
+                        f"{tokens[0]} ( PRP ( DMZ ( {' '.join(powers)} ) ( {loc} ) ) )"
+                else:
+                    raise ValueError(f"Unknown DMZ message: {message}")
+
+                messages.append(new_message)
+
+    if not messages:
+        messages = [message]
+
+    return messages
