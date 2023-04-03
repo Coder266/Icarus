@@ -21,7 +21,6 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                  log_file=None, dist_learning_rate=1e-4, validation_size=20,
                  embed_size=224, msg_embed_size=100, transformer_layers=5, transformer_heads=8, lstm_size=200,
                  lstm_layers=2, press_time=30, msg_log_size=20, restore_game=None, restore_epoch=None):
-
     if model_path and gunboat_model_path:
         raise ValueError("Received model_path and gunboat_model_path, please choose only one type of model to"
                          " initialize the network")
@@ -92,31 +91,21 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                 if game_count == num_games - validation_size + 1:
                     logging.info(f"Calculating accuracy using the validation set (last {validation_size} games)...")
 
-                note = obj['game']['phases'][-1]['state']['note'].split(': ')
-                note[1] = note[1].split(', ')
+                last_phase = obj['game']['phases'][-1]
+                centers = [len(last_phase['state']['centers'][power])
+                           if power in last_phase['state']['centers']
+                           else 0 for power in ALL_POWERS]
 
-                if note[0] == 'Victory by':
-                    final_score = [int(power in note[1]) * (34 / len(note[1])) for power in POWER_ACRONYMS_LIST]
-                else:
-                    last_phase = obj['game']['phases'][-1]
-                    # final_score should be
-                    # final_score = [score/sum(final_score) * 34 for score in final_score]
-                    # but it is not needed here since we only need the proportion
-                    final_score = [len(last_phase['state']['centers'][power])
-                                   if power in last_phase['state']['centers']
-                                   else 0 for power in ALL_POWERS]
-
-                if sum(final_score) <= 0:
-                    logging.warning(f'Skipping game {game_count} because final score is {sum(final_score)}')
+                if sum(centers) <= 0:
+                    logging.warning(f'Skipping game {game_count} because the total centers are {sum(centers)}')
                     continue
 
                 # remove powers if they end with less than 7 SCs, or they're not played by Albert
-                powers_to_learn = [ALL_POWERS[i] for i, score in enumerate(final_score) if score >= 7
+                powers_to_learn = [ALL_POWERS[i] for i, score in enumerate(centers) if score >= 7
                                    and ALL_POWERS[i] in obj['albert_powers']]
 
                 if not powers_to_learn:
-                    logging.info(f"Skipping game because Albert is not one of the winning powers "
-                                 f"or none of the powers reached 7 SCs")
+                    logging.info(f"Skipping game because none of the Albert powers reached 7 SCs")
                     continue
 
                 msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in powers_to_learn}
