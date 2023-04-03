@@ -30,8 +30,8 @@ def parse_args():
                         type=int, default=100)
     parser.add_argument('-t', '--transformer_layers', help='number of transformer layers, default is 5',
                         type=int, default=5)
-    parser.add_argument('--validation_size', help='number of games to keep in the validation set, default is 200',
-                        type=int, default=10)
+    parser.add_argument('--validation_size', help='number of games to keep in the validation set, default is 20',
+                        type=int, default=20)
     parser.add_argument('--transformer_heads', help='number of transformer multi-attention heads, default is 8',
                         type=int, default=8)
     parser.add_argument('--lstm_size', help='width of lstm, default is 200',
