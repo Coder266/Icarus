@@ -154,7 +154,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                                             break
 
                                     # train and log reply or lack of
-                                    reply_ix = reply['msg_ix'] if reply else ANSWER_LIST.ix(None)
+                                    reply_ix = reply['msg_ix'] if reply else ANSWER_LIST.index(None)
                                     running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
                                         train_and_log_reply(board_state, prev_orders, player.brain, msg_logs[power],
                                                             reply_ix, received_msg['msg_ix'], criterion, validate,
@@ -216,7 +216,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                     logging.info(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
                                  f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%,'
                                  f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%,'
-                                 f' message loss: {running_msg_loss / msg_input_count:.3f}%,'
+                                 f' message loss: {running_msg_loss / msg_input_count:.3f},'
                                  f' message f1-score: {running_msg_score / msg_input_count * 100:.2f}%')
 
                     running_dist_loss = 0.0
