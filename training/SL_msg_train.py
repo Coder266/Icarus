@@ -314,7 +314,7 @@ def train_msgs(board_state, prev_orders, model, power, units, msg_log, msg_ixs, 
     gen_msg_dist = filter_messages(gen_msg_dist, power, units)
     gen_msg_dist = gen_msg_dist.ge(0.5)
 
-    f1 = BinaryF1Score()
+    f1 = BinaryF1Score().to(device)
     msg_score = f1(gen_msg_dist.long(), real_msg_dist)
 
     return msg_loss, msg_score
@@ -352,7 +352,7 @@ def train_reply(board_state, prev_orders, model, msg_log, real_reply_ix, criteri
         msg_loss.backward(retain_graph=True)
 
     # metrics
-    msg_dist = torch.zeros_like(gen_msg_dist)
+    msg_dist = torch.zeros_like(gen_msg_dist).to(device)
     msg_dist[torch.argmax(gen_msg_dist)] = 1.0
 
     f1 = BinaryF1Score()
