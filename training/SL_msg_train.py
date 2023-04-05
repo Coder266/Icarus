@@ -224,13 +224,15 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                     running_power_accuracy = 0.0
                     running_msg_score = 0.0
                     dist_input_count = 0
+                    msg_input_count = 0
 
                 if save_ratio != 0 and game_count % save_ratio == 0:
                     torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}.pth')
 
         logging.info(f"Validation set accuracy for epoch {epoch + 1}:\n"
                      f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%\n'
-                     f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%\n')
+                     f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%\n'
+                     f' message accuracy: {running_msg_score / msg_input_count * 100:.2f}%\n')
 
         if save_ratio != 0:
             torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}_full.pth')
