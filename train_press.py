@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument('-s', '--save_ratio', help='how often to save the model, 0 disables saving',
                         type=int, default=0)
     parser.add_argument('-o', '--output_header', help='header for the name of the output model file, default is sl_',
-                        type=str, default='sl_')
+                        type=str, default='sl')
     parser.add_argument('-l', '--log_file', help='name of the log file',
                         type=str, default=None)
     parser.add_argument('-d', '--dist_lr',

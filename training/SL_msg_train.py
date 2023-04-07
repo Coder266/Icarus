@@ -17,7 +17,7 @@ import sys
 
 
 def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_ratio=0, save_ratio=1000,
-                 output_header='sl_',
+                 output_header='sl',
                  log_file=None, dist_learning_rate=1e-4, validation_size=20,
                  embed_size=224, msg_embed_size=100, transformer_layers=5, transformer_heads=8, lstm_size=200,
                  lstm_layers=2, press_time=30, msg_log_size=20, restore_game=None, restore_epoch=None):
@@ -222,6 +222,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                     running_dist_loss = 0.0
                     running_total_accuracy = 0.0
                     running_power_accuracy = 0.0
+                    running_msg_loss = 0.0
                     running_msg_score = 0.0
                     dist_input_count = 0
                     msg_input_count = 0

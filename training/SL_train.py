@@ -12,7 +12,7 @@ import logging
 import sys
 
 
-def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, output_header='sl_model_DipNet',
+def train_sl(dataset_path, model_path=None, print_ratio=0, save_ratio=1000, output_header='sl',
              log_file=None, dist_learning_rate=1e-4, value_learning_rate=1e-6, validation_size=200,
              embed_size=224, transformer_layers=10, transformer_heads=8, lstm_size=200, lstm_layers=2,
              restore_game=None, restore_epoch=None):
