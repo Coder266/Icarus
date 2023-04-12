@@ -24,7 +24,8 @@ torch.autograd.set_detect_anomaly(True)
 class MessagePlayer:
     def __init__(self, model_path=None, gunboat_model_path=None, embed_size=224, msg_embed_size=100,
                  transformer_layers=5, transformer_heads=8, lstm_size=200, lstm_layers=2, press_time=30,
-                 msg_log_size=20):
+                 msg_log_size=20, gunboat=False):
+        self.gunboat=gunboat
         self.press_time = press_time
         self.msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in ALL_POWERS}
 
@@ -46,7 +47,7 @@ class MessagePlayer:
         self.brain.to(device)
 
     async def get_orders(self, game, power_name):
-        if game.phase == 'SPRING 1901 MOVEMENT':
+        if not self.gunboat and game.phase == 'SPRING 1901 MOVEMENT':
             game.add_on_game_message_received(
                 notification_callback=lambda x, y: asyncio.create_task(self.reply_press(x, y)))
 
@@ -55,10 +56,11 @@ class MessagePlayer:
         board_state = torch.Tensor(get_board_state(game.get_state())).to(device)
         prev_orders = torch.Tensor(get_last_phase_orders(game)).to(device)
 
-        await self.send_press(game, power_name, board_state, prev_orders)
+        if not self.gunboat:
+            await self.send_press(game, power_name, board_state, prev_orders)
 
-        while not time.time() - start_time >= self.press_time:
-            time.sleep(1)
+            while not time.time() - start_time >= self.press_time:
+                time.sleep(1)
 
         orderable_locs = game.get_orderable_locations()
 
