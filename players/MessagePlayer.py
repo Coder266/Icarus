@@ -15,8 +15,8 @@ from environment.message_utils import filter_messages, get_daide_msg_ix, get_msg
 from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders
 from environment.order_utils import ORDER_SIZE, loc_to_ix, ix_to_order, select_orders
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -25,7 +25,7 @@ class MessagePlayer:
     def __init__(self, model_path=None, gunboat_model_path=None, embed_size=224, msg_embed_size=100,
                  transformer_layers=5, transformer_heads=8, lstm_size=200, lstm_layers=2, press_time=30,
                  msg_log_size=20, gunboat=False):
-        self.gunboat=gunboat
+        self.gunboat = gunboat
         self.press_time = press_time
         self.msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in ALL_POWERS}
 
@@ -64,7 +64,7 @@ class MessagePlayer:
 
         orderable_locs = game.get_orderable_locations()
 
-        dist, _ = self.brain(board_state, prev_orders, self.msg_logs[power_name], [power_name], orderable_locs)
+        dist, _ = self.brain(board_state, prev_orders, self.msg_logs, [power_name], orderable_locs)
 
         actions = select_orders(dist[power_name], game, power_name, orderable_locs)
 
