@@ -23,7 +23,7 @@ torch.autograd.set_detect_anomaly(True)
 
 class MessagePlayer:
     def __init__(self, model_path=None, gunboat_model_path=None, embed_size=224, msg_embed_size=100,
-                 transformer_layers=10, transformer_heads=8, lstm_size=200, lstm_layers=2, press_time=30,
+                 transformer_layers=5, transformer_heads=8, lstm_size=200, lstm_layers=2, press_time=30,
                  msg_log_size=20):
         self.press_time = press_time
         self.msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in ALL_POWERS}
