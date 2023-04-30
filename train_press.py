@@ -38,9 +38,6 @@ def parse_args():
                         type=int, default=200)
     parser.add_argument('--lstm_layers', help='number of lstm layers, default is 2',
                         type=int, default=2)
-    parser.add_argument('--press_time', help='time to wait for press messages before sending orders in seconds, '
-                                             'default is 30',
-                        type=int, default=30)
     parser.add_argument('--msg_log_size', help='how many past messages to use for making decisions, default is 20',
                         type=int, default=20)
     parser.add_argument('--restore_game', help='restore checkpoint and start from this game',
@@ -59,6 +56,5 @@ if __name__ == "__main__":
                  dist_learning_rate=args.dist_lr, validation_size=args.validation_size,
                  embed_size=args.embed_size, msg_embed_size=args.msg_embed_size,
                  transformer_layers=args.transformer_layers, transformer_heads=args.transformer_heads,
-                 lstm_size=args.lstm_size, lstm_layers=args.lstm_layers,
-                 press_time=args.press_time, msg_log_size=args.msg_log_size,
+                 lstm_size=args.lstm_size, lstm_layers=args.lstm_layers, msg_log_size=args.msg_log_size,
                  restore_game=args.restore_game, restore_epoch=args.restore_epoch)

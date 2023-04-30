@@ -123,11 +123,11 @@ def filter_messages(dist, power_name, units):
 
     for i, msg in enumerate(MESSAGE_LIST):
         if msg[0] in ['PCE', 'ALY'] and power_name in msg[1]:
-            msg_mask[i] = True
+            msg_mask[i] = False
         elif msg[0] == 'XDO' and ' '.join(msg[1].split()[:2]) in units:
-            msg_mask[i] = True
+            msg_mask[i] = False
         elif msg[0] == 'DMZ' and len(msg[2]) == 2 and power_name not in msg[2]:
-            msg_mask[i] = True
+            msg_mask[i] = False
 
     dist = dist.masked_fill(msg_mask, value=0)
 

@@ -22,7 +22,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                  output_header='sl',
                  log_file=None, dist_learning_rate=1e-4, validation_size=20,
                  embed_size=224, msg_embed_size=100, transformer_layers=5, transformer_heads=8, lstm_size=200,
-                 lstm_layers=2, press_time=30, msg_log_size=20, restore_game=None, restore_epoch=None):
+                 lstm_layers=2, msg_log_size=20, restore_game=None, restore_epoch=None):
     if model_path and gunboat_model_path:
         raise ValueError("Received model_path and gunboat_model_path, please choose only one type of model to"
                          " initialize the network")
@@ -41,7 +41,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
     player = MessagePlayer(model_path=model_path, gunboat_model_path=gunboat_model_path, embed_size=embed_size,
                            msg_embed_size=msg_embed_size, transformer_layers=transformer_layers,
                            transformer_heads=transformer_heads, lstm_size=lstm_size, lstm_layers=lstm_layers,
-                           press_time=press_time, msg_log_size=msg_log_size)
+                           msg_log_size=msg_log_size)
 
     player.brain.train()
 
