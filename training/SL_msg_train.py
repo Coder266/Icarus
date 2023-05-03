@@ -82,161 +82,161 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
         running_power_accuracy = 0.0
         running_msg_score = 0.0
 
-        lines = []
+        # lines = []
+        # with jsonlines.open(dataset_path) as reader:
+        #     for obj in reader:
+        #         lines.append(obj)
+
+        # random.shuffle(lines)
         with jsonlines.open(dataset_path) as reader:
             for obj in reader:
-                lines.append(obj)
+                game_count += 1
+                if epoch == start_epoch and restore_game and game_count <= restore_game:
+                    continue
 
-        random.shuffle(lines)
+                validate = game_count > (num_games - validation_size)
 
-        for obj in lines:
-            game_count += 1
-            if epoch == start_epoch and restore_game and game_count <= restore_game:
-                continue
+                if game_count == num_games - validation_size + 1:
+                    logging.info(f"Calculating accuracy using the validation set (last {validation_size} games)...")
 
-            validate = game_count > (num_games - validation_size)
+                last_phase = obj['game']['phases'][-1]
+                centers = [len(last_phase['state']['centers'][power])
+                           if power in last_phase['state']['centers']
+                           else 0 for power in ALL_POWERS]
 
-            if game_count == num_games - validation_size + 1:
-                logging.info(f"Calculating accuracy using the validation set (last {validation_size} games)...")
+                if sum(centers) <= 0:
+                    logging.warning(f'Skipping game {game_count} because the total centers are {sum(centers)}')
+                    continue
 
-            last_phase = obj['game']['phases'][-1]
-            centers = [len(last_phase['state']['centers'][power])
-                       if power in last_phase['state']['centers']
-                       else 0 for power in ALL_POWERS]
+                # remove powers if they end with less than 7 SCs, or they're not played by Albert
+                powers_to_learn = [ALL_POWERS[i] for i, score in enumerate(centers) if score >= 7
+                                   and ALL_POWERS[i] in obj['albert_powers']]
 
-            if sum(centers) <= 0:
-                logging.warning(f'Skipping game {game_count} because the total centers are {sum(centers)}')
-                continue
+                if not powers_to_learn:
+                    logging.info(f"Skipping game because none of the Albert powers reached 7 SCs")
+                    continue
 
-            # remove powers if they end with less than 7 SCs, or they're not played by Albert
-            powers_to_learn = [ALL_POWERS[i] for i, score in enumerate(centers) if score >= 7
-                               and ALL_POWERS[i] in obj['albert_powers']]
+                msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in powers_to_learn}
 
-            if not powers_to_learn:
-                logging.info(f"Skipping game because none of the Albert powers reached 7 SCs")
-                continue
+                last_phase_orders = []
+                for phase in obj['game']['phases']:
+                    msg_logs = {power: msg_log.detach() for power, msg_log in msg_logs.items()}
+                    board_state = get_board_state(phase['state'])
+                    prev_orders = phase_orders_to_rep(last_phase_orders)
 
-            msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in powers_to_learn}
+                    for power in powers_to_learn:
+                        sent_msg_log = []
+                        messages = split_Albert_DMZs(phase['messages'])
+                        messages = get_power_msgs(messages, power)
 
-            last_phase_orders = []
-            for phase in obj['game']['phases']:
-                msg_logs = {power: msg_log.detach() for power, msg_log in msg_logs.items()}
-                board_state = get_board_state(phase['state'])
-                prev_orders = phase_orders_to_rep(last_phase_orders)
+                        while messages:
+                            if messages[0]['msg_type'] == 'sent':
+                                sent_msg_log.append(messages.pop(0))
 
-                for power in powers_to_learn:
-                    sent_msg_log = []
-                    messages = split_Albert_DMZs(phase['messages'])
-                    messages = get_power_msgs(messages, power)
+                            elif messages[0]['msg_type'] == 'received':
+                                # train and log accumulated sent messages
+                                if sent_msg_log:
+                                    running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
+                                        train_and_log_sent_msgs(board_state, prev_orders, player.brain, power,
+                                                                phase['state']['units'][power], msg_logs[power],
+                                                                sent_msg_log,
+                                                                criterion, validate, msg_input_count,
+                                                                running_msg_loss, running_msg_score)
 
-                    while messages:
-                        if messages[0]['msg_type'] == 'sent':
-                            sent_msg_log.append(messages.pop(0))
+                                # add received message to log
+                                received_msg = messages.pop(0)
+                                if received_msg['is_reply']:
+                                    msg_logs[power] = add_to_log(msg_logs[power], player.brain,
+                                                                 [received_msg['msg_ix']],
+                                                                 received_msg['answered_msg_ix'])
+                                else:
+                                    msg_logs[power] = add_to_log(msg_logs[power], player.brain,
+                                                                 [received_msg['msg_ix']])
 
-                        elif messages[0]['msg_type'] == 'received':
-                            # train and log accumulated sent messages
-                            if sent_msg_log:
-                                running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
-                                    train_and_log_sent_msgs(board_state, prev_orders, player.brain, power,
-                                                            phase['state']['units'][power], msg_logs[power],
-                                                            sent_msg_log,
-                                                            criterion, validate, msg_input_count,
-                                                            running_msg_loss, running_msg_score)
+                                    # find possible reply
+                                    reply = None
+                                    for i, msg in enumerate(messages):
+                                        if msg['msg_type'] == 'reply' and \
+                                                received_msg['msg_ix'] == msg['answered_msg_ix']:
+                                            reply = messages.pop(i)
+                                            break
 
-                            # add received message to log
-                            received_msg = messages.pop(0)
-                            if received_msg['is_reply']:
-                                msg_logs[power] = add_to_log(msg_logs[power], player.brain,
-                                                             [received_msg['msg_ix']],
-                                                             received_msg['answered_msg_ix'])
+                                    # train and log reply or lack of
+                                    reply_ix = reply['msg_ix'] if reply else ANSWER_LIST.index(None)
+                                    running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
+                                        train_and_log_reply(board_state, prev_orders, player.brain, msg_logs[power],
+                                                            reply_ix, received_msg['msg_ix'], criterion, validate,
+                                                            msg_input_count, running_msg_loss, running_msg_score)
+
+                            elif messages[0]['msg_type'] == 'reply':
+                                raise ValueError(f"Message {messages[0]} replying to unsent message")
                             else:
-                                msg_logs[power] = add_to_log(msg_logs[power], player.brain,
-                                                             [received_msg['msg_ix']])
+                                raise ValueError(f"Invalid message {messages[0]}")
 
-                                # find possible reply
-                                reply = None
-                                for i, msg in enumerate(messages):
-                                    if msg['msg_type'] == 'reply' and \
-                                            received_msg['msg_ix'] == msg['answered_msg_ix']:
-                                        reply = messages.pop(i)
-                                        break
+                        if sent_msg_log:
+                            running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
+                                train_and_log_sent_msgs(board_state, prev_orders, player.brain, power,
+                                                        phase['state']['units'][power], msg_logs[power],
+                                                        sent_msg_log,
+                                                        criterion, validate, msg_input_count,
+                                                        running_msg_loss, running_msg_score)
 
-                                # train and log reply or lack of
-                                reply_ix = reply['msg_ix'] if reply else ANSWER_LIST.index(None)
-                                running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
-                                    train_and_log_reply(board_state, prev_orders, player.brain, msg_logs[power],
-                                                        reply_ix, received_msg['msg_ix'], criterion, validate,
-                                                        msg_input_count, running_msg_loss, running_msg_score)
+                    powers = [power for power, orders in phase['orders'].items() if orders
+                              and power in powers_to_learn]
+                    orders = {power: [order for order in orders if order != "WAIVE" and order in ACTION_LIST]
+                              for power, orders in phase['orders'].items() if power in powers}
+                    orderable_locs = {power: [order.split()[1] for order in orders]
+                                      for power, orders in orders.items()}
 
-                        elif messages[0]['msg_type'] == 'reply':
-                            raise ValueError(f"Message {messages[0]} replying to unsent message")
-                        else:
-                            raise ValueError(f"Invalid message {messages[0]}")
+                    last_phase_orders = orders
 
-                    if sent_msg_log:
-                        running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
-                            train_and_log_sent_msgs(board_state, prev_orders, player.brain, power,
-                                                    phase['state']['units'][power], msg_logs[power],
-                                                    sent_msg_log,
-                                                    criterion, validate, msg_input_count,
-                                                    running_msg_loss, running_msg_score)
+                    dist, _ = player.brain(torch.Tensor(board_state).to(device),
+                                           torch.Tensor(prev_orders).to(device),
+                                           msg_logs,
+                                           powers,
+                                           orderable_locs)
 
-                powers = [power for power, orders in phase['orders'].items() if orders
-                          and power in powers_to_learn]
-                orders = {power: [order for order in orders if order != "WAIVE" and order in ACTION_LIST]
-                          for power, orders in phase['orders'].items() if power in powers}
-                orderable_locs = {power: [order.split()[1] for order in orders]
-                                  for power, orders in orders.items()}
+                    # policy network update
+                    dist_outputs = [probs for power in powers for probs in dist[power]]
+                    dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
 
-                last_phase_orders = orders
+                    if dist_labels:
+                        if not validate:
+                            dist_loss = criterion(torch.stack(dist_outputs).to(device),
+                                                  torch.LongTensor(dist_labels).to(device))
+                            dist_loss.backward(retain_graph=True)
 
-                dist, _ = player.brain(torch.Tensor(board_state).to(device),
-                                       torch.Tensor(prev_orders).to(device),
-                                       msg_logs,
-                                       powers,
-                                       orderable_locs)
+                            running_dist_loss += dist_loss.item()
+                        # metrics
+                        dist_input_count += 1
 
-                # policy network update
-                dist_outputs = [probs for power in powers for probs in dist[power]]
-                dist_labels = [order_to_ix(order) for power in powers for order in orders[power]]
+                        total_accuracy, power_accuracy = calculate_accuracy(phase['state'],
+                                                                            powers, dist, orders, orderable_locs)
+                        running_total_accuracy += total_accuracy
+                        running_power_accuracy += power_accuracy
 
-                if dist_labels:
+                    # value network update
                     if not validate:
-                        dist_loss = criterion(torch.stack(dist_outputs).to(device),
-                                              torch.LongTensor(dist_labels).to(device))
-                        dist_loss.backward(retain_graph=True)
+                        optimizer.step()
+                        optimizer.zero_grad()
 
-                        running_dist_loss += dist_loss.item()
-                    # metrics
-                    dist_input_count += 1
+                if print_ratio != 0 and game_count % print_ratio == 0 and not validate:
+                    logging.info(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
+                                 f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%,'
+                                 f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%,'
+                                 f' message loss: {running_msg_loss / msg_input_count:.3f},'
+                                 f' message f1-score: {running_msg_score / msg_input_count * 100:.2f}%')
 
-                    total_accuracy, power_accuracy = calculate_accuracy(phase['state'],
-                                                                        powers, dist, orders, orderable_locs)
-                    running_total_accuracy += total_accuracy
-                    running_power_accuracy += power_accuracy
+                    running_dist_loss = 0.0
+                    running_total_accuracy = 0.0
+                    running_power_accuracy = 0.0
+                    running_msg_loss = 0.0
+                    running_msg_score = 0.0
+                    dist_input_count = 0
+                    msg_input_count = 0
 
-                # value network update
-                if not validate:
-                    optimizer.step()
-                    optimizer.zero_grad()
-
-            if print_ratio != 0 and game_count % print_ratio == 0 and not validate:
-                logging.info(f'[{epoch + 1}, {game_count}] dist loss: {running_dist_loss / dist_input_count:.3f},'
-                             f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%,'
-                             f' power accuracy: {running_power_accuracy / dist_input_count * 100:.2f}%,'
-                             f' message loss: {running_msg_loss / msg_input_count:.3f},'
-                             f' message f1-score: {running_msg_score / msg_input_count * 100:.2f}%')
-
-                running_dist_loss = 0.0
-                running_total_accuracy = 0.0
-                running_power_accuracy = 0.0
-                running_msg_loss = 0.0
-                running_msg_score = 0.0
-                dist_input_count = 0
-                msg_input_count = 0
-
-            if save_ratio != 0 and game_count % save_ratio == 0:
-                torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}.pth')
+                if save_ratio != 0 and game_count % save_ratio == 0:
+                    torch.save(player.brain.state_dict(), f'models/{output_header}_{epoch + 1}_{game_count}.pth')
 
         logging.info(f"Validation set accuracy for epoch {epoch + 1}:\n"
                      f' total accuracy: {running_total_accuracy / dist_input_count * 100:.2f}%\n'
