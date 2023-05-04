@@ -63,7 +63,8 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
         lr=dist_learning_rate
     )
 
-    criterion = nn.CrossEntropyLoss()
+    ce_loss = nn.CrossEntropyLoss()
+    bce_loss = nn.BCEWithLogitsLoss()
 
     num_games = sum(1 for _ in open(dataset_path))
 
@@ -140,7 +141,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                                         train_and_log_sent_msgs(board_state, prev_orders, player.brain, power,
                                                                 phase['state']['units'][power], msg_logs[power],
                                                                 sent_msg_log,
-                                                                criterion, validate, msg_input_count,
+                                                                bce_loss, validate, msg_input_count,
                                                                 running_msg_loss, running_msg_score)
 
                                 # add received message to log
@@ -165,7 +166,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                                     reply_ix = reply['msg_ix'] if reply else ANSWER_LIST.index(None)
                                     running_msg_loss, running_msg_score, msg_input_count, msg_logs[power] = \
                                         train_and_log_reply(board_state, prev_orders, player.brain, msg_logs[power],
-                                                            reply_ix, received_msg['msg_ix'], criterion, validate,
+                                                            reply_ix, received_msg['msg_ix'], ce_loss, validate,
                                                             msg_input_count, running_msg_loss, running_msg_score)
 
                             elif messages[0]['msg_type'] == 'reply':
@@ -178,7 +179,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
                                 train_and_log_sent_msgs(board_state, prev_orders, player.brain, power,
                                                         phase['state']['units'][power], msg_logs[power],
                                                         sent_msg_log,
-                                                        criterion, validate, msg_input_count,
+                                                        bce_loss, validate, msg_input_count,
                                                         running_msg_loss, running_msg_score)
 
                     powers = [power for power, orders in phase['orders'].items() if orders
@@ -202,7 +203,7 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
 
                     if dist_labels:
                         if not validate:
-                            dist_loss = criterion(torch.stack(dist_outputs).to(device),
+                            dist_loss = ce_loss(torch.stack(dist_outputs).to(device),
                                                   torch.LongTensor(dist_labels).to(device))
                             dist_loss.backward(retain_graph=True)
 
@@ -288,11 +289,11 @@ def add_to_log(msg_log, model, msg_ixs, last_message_ix=None):
     return msg_log
 
 
-def train_and_log_sent_msgs(board_state, prev_orders, model, power, units, msg_log, sent_msg_log, criterion, validate,
+def train_and_log_sent_msgs(board_state, prev_orders, model, power, units, msg_log, sent_msg_log, loss_fn, validate,
                             msg_input_count, running_msg_loss, running_msg_score):
     msg_ixs = [get_daide_msg_ix(msg['msg']) for msg in sent_msg_log]
     msg_loss, msg_score = train_msgs(board_state, prev_orders, model, power, units, msg_log, msg_ixs,
-                                     criterion, validate)
+                                     loss_fn, validate)
 
     msg_input_count += 1
     if msg_loss:
@@ -304,7 +305,7 @@ def train_and_log_sent_msgs(board_state, prev_orders, model, power, units, msg_l
     return running_msg_loss, running_msg_score, msg_input_count, msg_log
 
 
-def train_msgs(board_state, prev_orders, model, power, units, msg_log, msg_ixs, criterion, validate):
+def train_msgs(board_state, prev_orders, model, power, units, msg_log, msg_ixs, loss_fn, validate):
     # generate messages
     gen_msg_dist = model.forward_msgs(torch.Tensor(board_state).to(device),
                                       torch.Tensor(prev_orders).to(device),
@@ -317,7 +318,7 @@ def train_msgs(board_state, prev_orders, model, power, units, msg_log, msg_ixs, 
     msg_loss = None
 
     if not validate:
-        msg_loss = criterion(gen_msg_dist, real_msg_dist)
+        msg_loss = loss_fn(gen_msg_dist, real_msg_dist)
         msg_loss.backward(retain_graph=True)
 
     # metrics
@@ -331,9 +332,9 @@ def train_msgs(board_state, prev_orders, model, power, units, msg_log, msg_ixs, 
     return msg_loss, msg_score
 
 
-def train_and_log_reply(board_state, prev_orders, model, msg_log, reply_ix, answered_msg_ix, criterion, validate,
+def train_and_log_reply(board_state, prev_orders, model, msg_log, reply_ix, answered_msg_ix, loss_fn, validate,
                         msg_input_count, running_msg_loss, running_msg_score):
-    msg_loss, msg_score = train_reply(board_state, prev_orders, model, msg_log, reply_ix, criterion, validate)
+    msg_loss, msg_score = train_reply(board_state, prev_orders, model, msg_log, reply_ix, loss_fn, validate)
 
     msg_input_count += 1
     if msg_loss:
@@ -346,7 +347,7 @@ def train_and_log_reply(board_state, prev_orders, model, msg_log, reply_ix, answ
     return running_msg_loss, running_msg_score, msg_input_count, msg_log
 
 
-def train_reply(board_state, prev_orders, model, msg_log, real_reply_ix, criterion, validate):
+def train_reply(board_state, prev_orders, model, msg_log, real_reply_ix, loss_fn, validate):
     # generate messages
     gen_msg_dist = model.forward_answer(torch.Tensor(board_state).to(device),
                                         torch.Tensor(prev_orders).to(device),
@@ -359,7 +360,7 @@ def train_reply(board_state, prev_orders, model, msg_log, real_reply_ix, criteri
     msg_loss = None
 
     if not validate:
-        msg_loss = criterion(gen_msg_dist, real_msg_dist)
+        msg_loss = loss_fn(gen_msg_dist.reshape(1, -1), torch.LongTensor([real_reply_ix]).to(device))
         msg_loss.backward(retain_graph=True)
 
     # metrics

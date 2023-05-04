@@ -15,8 +15,8 @@ from environment.message_utils import filter_messages, get_daide_msg_ix, get_msg
 from environment.observation_utils import LOC_VECTOR_LENGTH, get_board_state, get_last_phase_orders
 from environment.order_utils import ORDER_SIZE, loc_to_ix, ix_to_order, select_orders
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 
 torch.autograd.set_detect_anomaly(True)
 
