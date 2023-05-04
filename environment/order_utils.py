@@ -318,7 +318,7 @@ def filter_orders(dist, game, power_name, orderable_locs):
     for i, loc in enumerate(orderable_locs[power_name]):
         order_mask[i, get_loc_valid_orders(game, loc)] = False
 
-    dist_clone = dist_clone.masked_fill(order_mask, value=-torch.inf)
+    dist_clone = dist_clone.masked_fill(order_mask, value=-float("inf"))
 
     return dist_clone
 
@@ -340,7 +340,7 @@ def select_orders(dist, game, power_name, orderable_locs):
     n_builds = abs(state['builds'][power_name]['count'])
 
     if n_builds > 0:
-        dist_clone[:, 0] = - torch.inf
+        dist_clone[:, 0] = - float("inf")
 
         dist_clone = F.softmax(dist_clone.reshape(-1), dim=0)
 
@@ -372,7 +372,7 @@ def get_max_orders(dist, game, power_name, orderable_locs):
     n_builds = abs(state['builds'][power_name]['count'])
 
     if n_builds > 0:
-        dist_clone[:, 0] = - torch.inf
+        dist_clone[:, 0] = - float("inf")
 
         dist_clone = F.softmax(dist_clone.reshape(-1), dim=0)
 
