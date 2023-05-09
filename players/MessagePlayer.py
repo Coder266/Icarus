@@ -28,6 +28,7 @@ class MessagePlayer:
         self.gunboat = gunboat
         self.press_time = press_time
         self.msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in ALL_POWERS}
+        self.sent_msgs = []
 
         self.brain = Brain(embed_size=embed_size, msg_embed_size=msg_embed_size, transformer_layers=transformer_layers,
                            transformer_heads=transformer_heads, lstm_size=lstm_size, lstm_layers=lstm_layers,
@@ -51,6 +52,8 @@ class MessagePlayer:
             game.add_on_game_message_received(
                 notification_callback=lambda x, y: asyncio.create_task(self.reply_press(x, y)))
 
+        self.sent_msgs = []
+
         start_time = time.time()
 
         board_state = torch.Tensor(get_board_state(game.get_state())).to(device)
@@ -60,7 +63,7 @@ class MessagePlayer:
             await self.send_press(game, power_name, board_state, prev_orders)
 
             while not time.time() - start_time >= self.press_time:
-                time.sleep(1)
+                await asyncio.sleep(1)
 
         orderable_locs = game.get_orderable_locations()
 
@@ -74,11 +77,13 @@ class MessagePlayer:
         msg_dist = self.brain.forward_msgs(board_state, prev_orders, self.msg_logs[power_name])
         msg_dist = torch.sigmoid(msg_dist)
         msg_dist = filter_messages(msg_dist, power_name, game.get_units(power_name))
-        msg_ixs = msg_dist.ge(0.5).nonzero()
+        msg_ixs = msg_dist.ge(0.2).nonzero()
 
         for msg_ix in msg_ixs:
-            self.add_message(msg_ix, power_name)
-            await send_message(game, power_name, msg_ix)
+            if msg_ix not in self.sent_msgs:
+                self.sent_msgs.append(msg_ix)
+                self.add_message(msg_ix, power_name)
+                await send_message(game, power_name, msg_ix)
 
     async def reply_press(self, game, msg_obj):
         power_name = msg_obj.message.recipient

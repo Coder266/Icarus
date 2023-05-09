@@ -136,7 +136,7 @@ def filter_messages(dist, power_name, units):
 
 def get_message_targets(game, power_name, msg):
     if msg[0] in ['PCE', 'ALY']:
-        return [POWERS_TO_ACRONYMS[power] for power in msg[1]]
+        return [POWERS_TO_ACRONYMS[power] for power in msg[1] if power != power_name]
     elif msg[0] == 'XDO':
         return get_unit_owner(game, ' '.join(msg[1].split()[:2]))
     elif msg[0] == 'DMZ':
@@ -154,7 +154,11 @@ async def send_message(game, power_name, msg_ix, last_message=None, reply_power=
 
     daide_msg = ix_to_daide_msg(msg_ix, game, power_name, last_message)
     for target in targets:
-        msg_object = game.new_power_message(target, daide_msg)
+        # This is weird but the diplomacy package sometimes accepts acronyms and sometimes full power names
+        try:
+            msg_object = game.new_power_message(ACRONYMS_TO_POWERS[target], daide_msg)
+        except KeyError:
+            msg_object = game.new_power_message(target, daide_msg)
         await game.send_game_message(message=msg_object)
 
         print(f'Sent message {daide_msg}')

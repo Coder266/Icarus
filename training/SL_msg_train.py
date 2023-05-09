@@ -325,7 +325,7 @@ def train_msgs(board_state, prev_orders, model, power, units, msg_log, msg_ixs, 
     # metrics
     gen_msg_dist = torch.sigmoid(gen_msg_dist)
     gen_msg_dist = filter_messages(gen_msg_dist, power, units)
-    gen_msg_dist = gen_msg_dist.ge(0.5)
+    gen_msg_dist = gen_msg_dist.ge(0.2)
 
     f1 = BinaryF1Score().to(device)
     msg_score = f1(gen_msg_dist.long(), real_msg_dist)
