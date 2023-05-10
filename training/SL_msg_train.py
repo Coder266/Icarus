@@ -73,6 +73,14 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
     else:
         start_epoch = 0
 
+    games = []
+    with jsonlines.open(dataset_path) as reader:
+        for obj in reader:
+            games.append(obj)
+
+    validation_set = games[-validation_size:]
+    games = games[:-validation_size]
+
     for epoch in range(start_epoch, 500):
         game_count = 0
         dist_input_count = 0
@@ -83,20 +91,13 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
         running_power_accuracy = 0.0
         running_msg_score = 0.0
 
-        lines = []
-        with jsonlines.open(dataset_path) as reader:
-            for obj in reader:
-                lines.append(obj)
-
-        random.shuffle(lines)
+        games_to_use = random.sample(games, len(games))
 
         # with jsonlines.open(dataset_path) as reader:
-        for obj in lines:
+        for obj in games_to_use + validation_set:
             game_count += 1
             if epoch == start_epoch and restore_game and game_count <= restore_game:
                 continue
-
-            validate = game_count > (num_games - validation_size)
 
             if game_count == num_games - validation_size + 1:
                 logging.info(f"Calculating accuracy using the validation set (last {validation_size} games)...")
