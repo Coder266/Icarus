@@ -99,6 +99,8 @@ def train_msg_sl(dataset_path, model_path=None, gunboat_model_path=None, print_r
             if epoch == start_epoch and restore_game and game_count <= restore_game:
                 continue
 
+            validate = game_count > (num_games - validation_size)
+
             if game_count == num_games - validation_size + 1:
                 logging.info(f"Calculating accuracy using the validation set (last {validation_size} games)...")
 
