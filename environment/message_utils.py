@@ -154,7 +154,7 @@ async def send_message(game, power_name, msg_ix, last_message=None, reply_power=
 
     daide_msg = ix_to_daide_msg(msg_ix, game, power_name, last_message)
     for target in targets:
-        if target in press_allowed_powers:
+        if ACRONYMS_TO_POWERS[target] in press_allowed_powers:
             # This is weird but the diplomacy package sometimes accepts acronyms and sometimes full power names
             try:
                 msg_object = game.new_power_message(ACRONYMS_TO_POWERS[target], daide_msg)
