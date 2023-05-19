@@ -145,7 +145,7 @@ def get_message_targets(game, power_name, msg):
         raise ValueError(f'Unable to determine target in message {msg}')
 
 
-async def send_message(game, power_name, msg_ix, last_message=None, reply_power=None):
+async def send_message(game, power_name, msg_ix, last_message=None, reply_power=None, press_allowed_powers=ALL_POWERS):
     if reply_power:
         targets = [reply_power]
     else:
@@ -154,14 +154,16 @@ async def send_message(game, power_name, msg_ix, last_message=None, reply_power=
 
     daide_msg = ix_to_daide_msg(msg_ix, game, power_name, last_message)
     for target in targets:
-        # This is weird but the diplomacy package sometimes accepts acronyms and sometimes full power names
-        try:
-            msg_object = game.new_power_message(ACRONYMS_TO_POWERS[target], daide_msg)
-        except KeyError:
-            msg_object = game.new_power_message(target, daide_msg)
-        await game.send_game_message(message=msg_object)
+        if target in press_allowed_powers:
+            # This is weird but the diplomacy package sometimes accepts acronyms and sometimes full power names
+            try:
+                msg_object = game.new_power_message(ACRONYMS_TO_POWERS[target], daide_msg)
+            except KeyError:
+                msg_object = game.new_power_message(target, daide_msg)
 
-        print(f'Sent message {daide_msg}')
+            await game.send_game_message(message=msg_object)
+
+            print(f'Sent message {daide_msg}')
 
 
 def split_Albert_DMZs(received_messages):

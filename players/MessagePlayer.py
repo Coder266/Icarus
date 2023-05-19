@@ -24,9 +24,10 @@ torch.autograd.set_detect_anomaly(True)
 class MessagePlayer:
     def __init__(self, model_path=None, gunboat_model_path=None, embed_size=224, msg_embed_size=100,
                  transformer_layers=5, transformer_heads=8, lstm_size=200, lstm_layers=2, press_time=30,
-                 msg_log_size=20, gunboat=False):
+                 msg_log_size=20, gunboat=False, press_allowed_powers=ALL_POWERS):
         self.gunboat = gunboat
         self.press_time = press_time
+        self.press_allowed_powers = press_allowed_powers
         self.msg_logs = {power: torch.zeros([msg_log_size, msg_embed_size]).to(device) for power in ALL_POWERS}
         self.sent_msgs = []
 
@@ -83,7 +84,7 @@ class MessagePlayer:
             if msg_ix not in self.sent_msgs:
                 self.sent_msgs.append(msg_ix)
                 self.add_message(msg_ix, power_name)
-                await send_message(game, power_name, msg_ix)
+                await send_message(game, power_name, msg_ix, press_allowed_powers=self.press_allowed_powers)
 
     async def reply_press(self, game, msg_obj):
         power_name = msg_obj.message.recipient
@@ -110,7 +111,8 @@ class MessagePlayer:
 
                 if msg_ix != 2:
                     self.add_message(msg_ix, power_name, last_msg_ix)
-                    await send_message(game, power_name, msg_ix, last_message=received_message, reply_power=reply_power)
+                    await send_message(game, power_name, msg_ix, last_message=received_message, reply_power=reply_power,
+                                       press_allowed_powers=self.press_allowed_powers)
 
         await self.send_press(game, power_name, board_state, prev_orders)
 
